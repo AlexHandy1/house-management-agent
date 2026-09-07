@@ -1,6 +1,6 @@
 # Landlord AI Agent — Design Ideas
 
-**Status:** Exploration / architecture-level design (not a build spec). Purpose is dual: a real tool to replace a managing agent, and a system-design practice exercise.
+**Status:** Exploration / architecture-level design (not a build spec). Purpose: a real tool to replace a managing agent.
 
 ## Problem
 

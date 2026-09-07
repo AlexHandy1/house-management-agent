@@ -14,11 +14,9 @@
 
 ## What was explored / learnt
 
-- Reviewed the parent design doc (`LANDLORD_AI_AGENT_DESIGN_IDEAS_040926.md`) and the
-  system-design prep notes under
-  `../networking-system/planning_and_status_docs/system_design_prep/` (LEARNING_PLAN.md,
-  SYSTEM_DESIGN_CURRICULUM.md — trade-off / numbers / eval / failure-mode reflexes;
-  framework-free hand-built loop; simplest-agent-pattern-that-fits).
+- Reviewed the parent design doc (`LANDLORD_AI_AGENT_DESIGN_IDEAS_040926.md`) and prior
+  design notes — reinforcing the trade-off / numbers / eval / failure-mode reflexes, a
+  framework-free hand-built loop, and the simplest-agent-pattern-that-fits.
 - Worked the full design tree for slice 1 via `/grill-me`. Key reframings during the grill:
   - The user's original "always produce 3 outputs" would have rebuilt the hardcoded
     pipeline the parent design explicitly rejected → replaced with four artifact-distinguished
@@ -37,13 +35,13 @@
 ## Decisions and trade-offs
 
 - **Decision:** Throwaway prototype, but real tools (real web-backed cost research and
-  contractor search, real draft generation). **Why:** building with a real-tool mindset makes
-  the system-design learning come for free; foundational persistence work is not needed yet.
+  contractor search, real draft generation). **Why:** a real-tool mindset keeps the design and
+  its integration seams realistic; foundational persistence work is not needed yet.
   **Trade-off:** code will be rewritten; some effort on tool implementations is disposable.
 
 - **Decision:** Single-agent ReAct loop, framework-free Python, Anthropic SDK native tool
-  calling, `claude-sonnet-5`. **Why:** matches the prep-plan skill being practised; keeps loop
-  control fully visible for eval work. **Trade-off:** no framework niceties; may trial other
+  calling, `claude-sonnet-5`. **Why:** keeps loop control fully visible for eval work and avoids
+  a framework dependency this early. **Trade-off:** no framework niceties; may trial other
   frameworks later purely for comparison.
 
 - **Decision:** Forced termination via `pause(reason)` only (Option 1); reason enum doubles as

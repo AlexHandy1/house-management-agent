@@ -1,7 +1,8 @@
 # Maintenance Agent — Slice 1 (Full Prototype)
 
-**Status:** Spec for a throwaway prototype. Not production code. Built with a "real tool" mindset
-so the system-design learning comes for free, but the code is expected to be rewritten.
+**Status:** Spec for a throwaway prototype — the code is expected to be rewritten. Built with a
+"real tool" mindset: the tools do real work (web-backed research, real draft generation) rather
+than returning canned data, so the prototype exercises the real integration seams.
 
 **Parent design:** `docs/status_docs/LANDLORD_AI_AGENT_DESIGN_IDEAS_040926.md`
 
