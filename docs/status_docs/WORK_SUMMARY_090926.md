@@ -119,9 +119,10 @@ model before building it. All work under `prototypes/` (untracked, gitignored).
    longer/HITL path specifically.)
 2. Explore introducing some basic external state as a new component (e.g. contractors
    from an existing DB the agent reads and writes to), rather than `find_contractors()`
-   always searching fresh.
+   always searching fresh. 
+    - Integrate HITL feedback via terminal or some other simple server setup) and/or other external triggers to test longer horizon performance in more autonomous setting.
 3. Explore a mobile-led human interaction shape for the approval step, as an alternative
-   to terminal `input()`.
+   to terminal `input()` or server. 
 4. Explore a more complete evaluation and observability harness — perhaps to really
    refine one step first (cost estimate), given the variance already observed.
 5. Then revisit building a more complete prototype per the slice 1 spec
