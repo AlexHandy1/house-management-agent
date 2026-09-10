@@ -1,0 +1,13 @@
+# Static property grounding, injected into the system prompt each turn.
+# Prototype fixture — same property used across all the earlier prototypes.
+# No tenant/personal details: tenant contact is out of scope for this prototype.
+property:
+  name: Beech Range
+  locality: Levenshulme
+  city: Manchester
+  postcode: M19 3JX
+  country: United Kingdom
+  notes: >-
+    Ground-floor 2-bed flat. Freestanding gas cooker with a 4-burner hob
+    (Zanussi, installed ~2015). Gas meter in the hall cupboard. Rear access
+    via a shared yard.

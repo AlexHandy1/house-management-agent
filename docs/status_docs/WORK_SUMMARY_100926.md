@@ -224,3 +224,179 @@ does not have the equivalent instrumentation.
 6. Carried from 09 Sep, still open: contractors DB / external state; mobile approval shape;
    eval + observability harness; OpenRouter `web` plugin firing inconsistently across
    models; create a real project `README.md` and update `ARCHITECTURE.md`.
+
+---
+
+# Session 2 — 10 September 2026 (evening)
+
+Distinct piece of work from the LangChain/LangGraph session above. Goal: pick a production
+deployment model, then build a prototype that exercises it against a two-flow scenario —
+(A) new issue → cost estimate → contractors → drafted quote → landlord approval → send
+quote requests; (B) contractor replies with a quote → interpret it → compare to the stored
+estimate → advise the landlord.
+
+## What was built
+
+- **`prototypes/state_management_flow_prototype.py`** — a cold-start-per-turn agent over a
+  durable SQLite state DB. One CLI invocation = one "turn": wake on an event, rebuild the
+  message list purely from DB rows (the issue's `events` log + `issue_artifacts` +
+  `contractors`), run a hand-rolled ReAct loop, call `pause(reason)`, exit. Raw `openai`
+  client via OpenRouter, `inception/mercury-2.5`, `MAX_ROUNDS=20`.
+  - **One system prompt, one tool set** — `research_cost()`, `find_contractors(trade, area)`,
+    `record_contractor(...)` (writes the `contractors` table), `write_artifact(kind, data)`
+    (single generic durable-write tool — agent picks the kind: `cost_estimate`,
+    `draft_message`, `quote`, `landlord_advice`, `note`, …), `send_message(recipient_ref,
+    body)` (mock), `pause(reason)` (terminal; reason ∈ AWAITING_LANDLORD_APPROVAL /
+    AWAITING_TENANT_INFO / AWAITING_CONTRACTOR_QUOTES / NEEDS_HUMAN_REVIEW / RESOLVED).
+    The agent infers the route — it is not told which turn it is on.
+  - **Rehydration is a generic log dump** — no per-artifact-kind formatter, no per-trigger
+    branching. `rehydrate()` reads the rows, renders `EVENT #n type=… payload=…` /
+    `ARTIFACT seq=… kind=… data=…` lines time-ordered, appends "the most recent EVENT woke
+    you; decide, then pause".
+  - **`classify_inbound()`** is an explicit stub seam: CLI args → a typed `events` row. In
+    production this is a thin LLM classifier (intent + issue/contractor correlation); the
+    `events` row is its output contract.
+  - **Instrumentation:** per-call token/cost via OpenRouter `usage.include` +
+    `GET /api/v1/generation` (restored from `cost_estimate_agent_openrouter_prototype.py`),
+    written into a JSONL trace `prototypes/logs/{issue_id}/turn_{n}.jsonl` (one line per
+    step) plus a per-turn total printed to stdout.
+  - CLI: `init-db`, `report-issue --text`, `approve <id> [--note]`, `reject <id> --note`,
+    `message --issue N --from contractor|tenant|landlord [--ref] --text`, `event --issue N
+    --type T --json '{}'` (generic escape hatch), `show <id>`.
+- **`prototypes/property.yaml`** — static property grounding (Beech Range, Levenshulme —
+  same fixture as the earlier prototypes). No tenant/personal details (deliberate).
+- **`prototypes/requirements.txt`** — added `pyyaml`.
+- **`prototypes/README.md`** — added a short "State-management flow" entry.
+- **`.gitignore`** — added `.venv/`, `prototypes/logs/`, `prototypes/*.db`.
+
+## What was explored / learnt
+
+### Deployment model — chose "option 1" (cold-start-per-turn, event-sourced state)
+
+Compared five approaches: (1) cold-start per turn + event-sourced domain state; (2)
+durable-execution / checkpointed workflow (LangGraph checkpointer, Temporal, DBOS); (3)
+always-on single long-lived process with in-memory state; (4) long-context "everything in
+the prompt"; (5) hybrid — event-sourced domain DB + a checkpointer scoped to one in-flight
+turn. **Picked (1)**, with (5) as the escape hatch. Rationale: every gate in the flow
+(landlord approval, waiting on a contractor) is naturally an event that starts a fresh
+turn — none need a mid-loop pause, so the checkpointer's headline feature buys little here;
+both flows hinge on reading a structured value back (`SELECT` the estimate, compare to the
+quote), which rules out (4) and means (2)/(3) need a domain DB anyway; it's a work-item
+system with hours/days between steps and typed terminal states already in the spec.
+
+**Consequence:** human approval is a **turn boundary**, not a blocking `input()` or a
+LangGraph `interrupt()`. Last session's LangChain/LangGraph HITL ports would need reworking,
+not extending, for this model.
+
+### Production ingress ≈ a thin LLM classifier, not a second agent
+
+Ingress in production (WhatsApp-style free-text interaction) is very likely one stateless
+LLM call: inbound text + the landlord's open-issue list → typed event `{type, issue_id,
+contractor_id?, payload}`. Routes, never decides. Natural home for a low-confidence
+confirmation turn. Where prompt-injection defence concentrates. Doesn't change the turn or
+state model — the typed `events` row is its output contract. Watch the line where ingress
+grows to hold dialogues / status queries / scheduled chasing → then it's a second agent and
+that's a deliberate multi-agent decision.
+
+### WhatsApp reality doesn't change what this prototype tests
+
+The cold-start/rehydrate/terminate spine is channel-agnostic. What WhatsApp adds — intent
+classification, issue/contractor correlation without IDs, multi-intent messages, debounce —
+all sits upstream of the agent turn. The CLI subcommands with explicit `--issue`/`--contractor`
+flags are a deliberate stand-in for that ingress layer.
+
+### First design was too rigid — rewritten
+
+Initial build hard-coded the three turns: `TURN1_PROMPT`/`TURN2_PROMPT`/`TURN3_PROMPT`,
+per-turn tool subsets in a `TURN_CONFIG`, a `render_artifact()` with an `if kind == …`
+branch per artifact type, and a `trigger_text()` per event type. Rejected by review as
+un-scalable to the other paths (triage-only, needs-info, whitelist C/D, rejection re-entry)
+and as "predicting all the triggers". Rewritten to one prompt / one tool set / generic log
+dump / agent-inferred route.
+
+### Route-inference run 1 (issue 1) — diverged
+
+With a bare "decide for yourself" prompt, mercury on turn 1 emitted `find_contractors` +
+two `write_artifact` + `pause` **in a single assistant message** — so it drafted and paused
+before seeing the contractor results. Never called `research_cost`, never wrote a
+`cost_estimate` artifact (stuffed an invented range into the draft body), never
+`record_contractor`, addressed the draft to the **landlord** not a contractor. Turn 2
+(`approved`) then had nothing sendable and re-drafted another landlord message, pausing
+`AWAITING_LANDLORD_APPROVAL` again — a stuck re-ask loop. Same "all tools fire in round 1"
+behaviour logged 09 Sep. Traces preserved at `prototypes/logs/1/`.
+
+### Prompt edit — run 2 (issue 2) — clean end-to-end
+
+Edited the system prompt to the earlier prototypes' "middle ground": still order-free
+("you decide what a given issue needs") but names the usual shape as numbered steps
+(research → `cost_estimate` → find/record contractors → one `draft_message` per contractor
+→ pause; on approval → `send_message` each → pause; on a quote reply → `quote` artifact →
+compare to `cost_estimate` → `landlord_advice` → pause), plus two explicit rules: "do NOT
+call pause in the same step as other tools" and "quote messages go TO contractors, not the
+landlord". Result — all three turns for issue 2 ran clean as **separate cold processes**:
+  - Turn 1: `cost_estimate` £80–200 grounded in research; 3 contractors recorded (correctly
+    skipped "Able Group" = install/disconnect only); 3 contractor-addressed quote-request
+    drafts; `pause` isolated in its own round. → `AWAITING_LANDLORD_APPROVAL`
+  - Turn 2 (`approve 2`): rehydrated, `send_message` ×3, `sent` artifacts seq 5–7. →
+    `AWAITING_CONTRACTOR_QUOTES`
+  - Turn 3 (`message --from contractor --ref 2`, realistic Gas-Safe-engineer prose):
+    rehydrated, interpreted prose → `quote` artifact (£110–240 merged from base + conditional;
+    £75 deductible call-out and parts-availability caveat captured; "earliest Tuesday";
+    terms); `landlord_advice` comparing to the estimate ("aligns… upper bound could exceed
+    it if the gas tap needs replacing"). → `AWAITING_LANDLORD_APPROVAL`
+  - Rehydration verified via growing prompt size (5.6k → 9.8k tokens). ~$0.018 for the run.
+
+## Decisions and trade-offs
+
+- **Decision:** Deployment model = cold-start per turn, event-sourced state; human approval
+  is a turn boundary; no checkpointer. **Why:** every gate is naturally an event; both
+  flows need structured read-back; smallest thing that faithfully tests the production
+  mental model. **Trade-off:** bespoke rehydration code; the agent's within-turn scratchpad
+  is lost between turns — anything worth remembering must be written to an artifact.
+- **Decision:** Single generic `write_artifact(kind, data)` instead of typed propose tools
+  (`propose_cost_estimate`, etc.). **Why:** scales to any path with no new tools. **Trade-off:**
+  no schema enforcement — run 1 invented `recipient_type: "landlord"` and skipped
+  `cost_estimate` entirely; the prompt now carries the guardrails instead.
+- **Decision:** Keep `contractors` as a standalone table the agent reads and writes; drop
+  the whitelist / preferred-contractors / Path C-vs-D distinction from this flow. **Why:**
+  prove the external read/write contract first; whitelist is a separate later flow.
+  **Trade-off:** contractors are issue-scoped only; no cross-issue reuse yet.
+- **Decision:** Append-log (`issue_artifacts`) + `contractors` table only; no projection
+  tables. **Why:** reading a JSON value out of one row by `kind` doesn't need a projection;
+  the log stays small. Matches the spec.
+- **Decision:** `classify_inbound()` / CLI flags stub the ingress layer. **Why:** the novel,
+  risky part is state across cold turns; hard-code classification + correlation for now.
+- **Decision:** Fixed run-1 divergence with a prompt edit only (name the happy-path steps,
+  forbid pause-with-tools, force contractor recipients) rather than loop-code guards or a
+  model swap. **Why:** smallest change; matches the earlier prototypes' prompt style.
+  **Trade-off:** still relies on the model honouring "don't pause in the same step";
+  not structurally enforced.
+- **Decision:** No tenant/personal details in `property.yaml`. **Why:** user instruction.
+- **Decision:** Preserve `prototypes/logs/1/` (diverged run) alongside `logs/2/` rather
+  than deleting or archiving. DB kept between runs so issue ids don't collide.
+
+## Blockers
+
+None. Nothing committed — working tree has the new/changed files staged for the user to
+commit.
+
+## Next steps
+
+1. Commit: `prototypes/state_management_flow_prototype.py`, `prototypes/property.yaml`,
+   `prototypes/README.md`, `prototypes/requirements.txt`, `.gitignore`, this summary.
+2. Quality gaps observed in run 2 (not blockers): `quote.confidence` is free text (the
+   enum was lost when tools collapsed to `write_artifact`); the "could be a new hob"
+   open-ended escalation wasn't captured as a discrete condition; consider whether a few
+   typed fields on `write_artifact` for the common kinds are worth the rigidity.
+3. Test the deferred paths on the same machinery with no code change: triage-only,
+   needs-info (`AWAITING_TENANT_INFO`), landlord `reject` re-entry, a second contractor
+   quote arriving (turn 3 re-runs and re-advises).
+4. Add the whitelist / preferred-contractors flow (pre-seeded approved contractors,
+   `get_preferred_contractors`, the ≥2 decision) as a separate exercise.
+5. Prototype the real ingress classifier (inbound text → typed `events` row) as its own
+   small piece.
+6. Decide if/when to move the loop model to `claude-sonnet-5` (spec's choice) — mercury's
+   blind-parallel-tool-call behaviour is a recurring friction.
+7. Still open from Session 1 / 09 Sep: mobile approval shape; eval + observability harness;
+   OpenRouter `web` plugin inconsistency; real project `README.md`; update `ARCHITECTURE.md`
+   (now that there is a state model + deployment decision to describe).
