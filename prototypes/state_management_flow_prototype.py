@@ -53,6 +53,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -132,15 +133,22 @@ def usage_from_response(label: str, response, latency_ms: int) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# Trace — JSONL, one line per step -> prototypes/logs/{issue_id}/turn_{n}.jsonl
+# Trace — JSONL, one line per step -> prototypes/logs/{run_id}/{issue_id}/turn_{n}.jsonl
+#
+# `run_id` is a per-DB-lifetime id (stored in the `meta` table, regenerated only when the DB
+# file itself is deleted and recreated). Without it, a DB reset restarts issue/turn numbering
+# from 1 and silently overwrites a prior run's trace files at the same path — this happened
+# once already (see WORK_SUMMARY session notes). The trace file also opens in exclusive-create
+# mode ("x") as a second line of defence: any remaining path collision raises instead of
+# clobbering.
 # ---------------------------------------------------------------------------
 
 class Trace:
-    def __init__(self, issue_id: int, turn_no: int, trigger: str):
-        self.dir = LOGS_DIR / str(issue_id)
+    def __init__(self, run_id: str, issue_id: int, turn_no: int, trigger: str):
+        self.dir = LOGS_DIR / run_id / str(issue_id)
         self.dir.mkdir(parents=True, exist_ok=True)
         self.path = self.dir / f"turn_{turn_no}.jsonl"
-        self.fh = self.path.open("w")
+        self.fh = self.path.open("x")
         self.step = 0
         self.usage: list[dict] = []
         self.write("turn_start", {"issue_id": issue_id, "turn_no": turn_no, "trigger": trigger})
@@ -194,14 +202,36 @@ CREATE TABLE IF NOT EXISTS issue_artifacts (
 );
 CREATE TABLE IF NOT EXISTS contractors (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    issue_id INTEGER NOT NULL REFERENCES issues(id),
     name TEXT NOT NULL,
     trade TEXT, area TEXT, contact TEXT, source_url TEXT,
+    preferred INTEGER NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS issue_contractors (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    issue_id INTEGER NOT NULL REFERENCES issues(id),
+    contractor_id INTEGER NOT NULL REFERENCES contractors(id),
+    created_at TEXT NOT NULL,
+    UNIQUE(issue_id, contractor_id)
+);
+CREATE TABLE IF NOT EXISTS meta (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL
 );
 """
 
 STATUS_OPEN = "OPEN"
+
+# Pre-seeded whitelist — hardcoded for this throwaway prototype (2 static rows; a real
+# onboarding flow would load these from somewhere, same as property.yaml stands in for a
+# future property-onboarding step).
+PREFERRED_CONTRACTORS = [
+    {"name": "HeatSave Services", "trade": "plumbing/heating", "area": "Levenshulme",
+     "contact": None, "source_url": "https://heatsaveservices.co.uk/"},
+    {"name": "DKM Plumbing and Heating", "trade": "plumbing/heating", "area": "Stockport",
+     "contact": None,
+     "source_url": "https://www.yell.com/biz/d-k-m-plumbing-and-heating-stockport-7379874/"},
+]
 
 
 def connect() -> sqlite3.Connection:
@@ -211,9 +241,45 @@ def connect() -> sqlite3.Connection:
     return conn
 
 
+def seed_preferred_contractors(conn: sqlite3.Connection) -> None:
+    for c in PREFERRED_CONTRACTORS:
+        existing = conn.execute(
+            "SELECT id FROM contractors WHERE name = ? AND preferred = 1", (c["name"],)
+        ).fetchone()
+        if existing:
+            continue
+        conn.execute(
+            "INSERT INTO contractors (name, trade, area, contact, source_url, preferred, "
+            "created_at) VALUES (?, ?, ?, ?, ?, 1, ?)",
+            (c["name"], c["trade"], c["area"], c["contact"], c["source_url"], now_iso()),
+        )
+    conn.commit()
+
+
 def init_db() -> None:
-    connect().close()
+    conn = connect()
+    seed_preferred_contractors(conn)
+    conn.close()
     print(f"[init-db] schema ready at {DB_PATH}")
+    print(f"[init-db] preferred contractors seeded: "
+          f"{', '.join(c['name'] for c in PREFERRED_CONTRACTORS)}")
+    if PROPERTY_YAML.exists():
+        p = yaml.safe_load(PROPERTY_YAML.read_text())["property"]
+        print(f"[init-db] property loaded: {p['name']}, {p['locality']}")
+    else:
+        print(f"[init-db] WARNING: no property.yaml found at {PROPERTY_YAML}")
+
+
+def get_or_create_run_id(conn: sqlite3.Connection) -> str:
+    """A short id stable for this DB file's lifetime, used to keep trace log paths from
+    colliding across DB resets (see Trace docstring)."""
+    row = conn.execute("SELECT value FROM meta WHERE key = 'run_id'").fetchone()
+    if row:
+        return row["value"]
+    run_id = uuid.uuid4().hex[:8]
+    conn.execute("INSERT INTO meta (key, value) VALUES ('run_id', ?)", (run_id,))
+    conn.commit()
+    return run_id
 
 
 def get_issue(conn: sqlite3.Connection, issue_id: int) -> sqlite3.Row:
@@ -251,15 +317,38 @@ def append_artifact(conn: sqlite3.Connection, issue_id: int, kind: str, data) ->
     return int(nxt)
 
 
-def add_contractor(conn: sqlite3.Connection, issue_id: int, c: dict) -> int:
+def find_or_create_contractor(conn: sqlite3.Connection, c: dict) -> int:
+    """Reuse a contractor row by exact name match (covers both a preferred contractor and
+    one already found on a prior issue); otherwise insert a new (non-preferred) row."""
+    row = conn.execute(
+        "SELECT id FROM contractors WHERE name = ?", (c.get("name", ""),)
+    ).fetchone()
+    if row:
+        return int(row["id"])
     cur = conn.execute(
-        "INSERT INTO contractors (issue_id, name, trade, area, contact, source_url, created_at) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?)",
-        (issue_id, c.get("name", ""), c.get("trade"), c.get("area"),
+        "INSERT INTO contractors (name, trade, area, contact, source_url, preferred, "
+        "created_at) VALUES (?, ?, ?, ?, ?, 0, ?)",
+        (c.get("name", ""), c.get("trade"), c.get("area"),
          c.get("contact"), c.get("source_url"), now_iso()),
     )
     conn.commit()
     return int(cur.lastrowid)
+
+
+def link_contractor_to_issue(conn: sqlite3.Connection, issue_id: int, contractor_id: int) -> bool:
+    """Link a contractor to an issue. Returns False (no-op) if already linked."""
+    existing = conn.execute(
+        "SELECT 1 FROM issue_contractors WHERE issue_id = ? AND contractor_id = ?",
+        (issue_id, contractor_id),
+    ).fetchone()
+    if existing:
+        return False
+    conn.execute(
+        "INSERT INTO issue_contractors (issue_id, contractor_id, created_at) VALUES (?, ?, ?)",
+        (issue_id, contractor_id, now_iso()),
+    )
+    conn.commit()
+    return True
 
 
 # ---------------------------------------------------------------------------
@@ -302,8 +391,16 @@ def rehydrate(conn: sqlite3.Connection, issue_id: int) -> list[dict]:
         "SELECT * FROM events WHERE issue_id = ? ORDER BY id", (issue_id,)).fetchall()
     artifacts = conn.execute(
         "SELECT * FROM issue_artifacts WHERE issue_id = ? ORDER BY seq", (issue_id,)).fetchall()
-    contractors = conn.execute(
-        "SELECT * FROM contractors WHERE issue_id = ? ORDER BY id", (issue_id,)).fetchall()
+    linked_contractors = conn.execute(
+        "SELECT c.* FROM contractors c "
+        "JOIN issue_contractors ic ON ic.contractor_id = c.id "
+        "WHERE ic.issue_id = ? ORDER BY c.id", (issue_id,)).fetchall()
+    preferred_available = conn.execute(
+        "SELECT c.*, "
+        "(SELECT COUNT(*) FROM issue_contractors ic2 WHERE ic2.contractor_id = c.id) AS uses "
+        "FROM contractors c WHERE c.preferred = 1 "
+        "AND c.id NOT IN (SELECT contractor_id FROM issue_contractors WHERE issue_id = ?) "
+        "ORDER BY c.id", (issue_id,)).fetchall()
 
     log: list[tuple[str, str]] = []
     for e in events:
@@ -324,11 +421,18 @@ def rehydrate(conn: sqlite3.Connection, issue_id: int) -> list[dict]:
         "memory of anything that happened before now:",
     ]
     lines += [f"  [{ts}] {text}" for ts, text in log] or ["  (nothing yet)"]
-    if contractors:
-        lines.append("  contractors table:")
-        for c in contractors:
+    if linked_contractors:
+        lines.append("  contractors already on this issue:")
+        for c in linked_contractors:
             lines.append(f"    id={c['id']} name={c['name']} trade={c['trade']} "
                          f"area={c['area']} contact={c['contact']} source={c['source_url']}")
+    if preferred_available:
+        lines.append("  preferred contractors available (not yet used on this issue):")
+        for c in preferred_available:
+            usage = f", used on {c['uses']} other issue(s)" if c["uses"] else ""
+            lines.append(f"    id={c['id']} name={c['name']} trade={c['trade']} "
+                         f"area={c['area']} contact={c['contact']} source={c['source_url']}"
+                         f"{usage}")
     lines += [
         "",
         "The most recent EVENT above is what woke you. Decide what (if anything) to do "
@@ -362,8 +466,13 @@ not every issue needs every step, and the order can vary — but this is the usu
   1. research_cost(), then write a "cost_estimate" artifact {low, high, currency, basis}.
      If the issue is too vague to ground a range, instead draft a clarifying question to the
      tenant and pause AWAITING_TENANT_INFO.
-  2. find_contractors(trade, area), then record_contractor(...) for each one worth keeping
-     (2-3 is plenty).
+  2. Contractors — check "preferred contractors available" in STATE FIRST. If 2 or more of
+     them match this issue's trade, use those: call record_contractor(...) for each one
+     (name must match exactly what's shown in STATE) to link it to this issue, and do NOT
+     call find_contractors. Preferred contractors are already-trusted relationships — do not
+     search for alternatives when 2+ already match. Only call find_contractors(trade, area)
+     if the preferred pool has fewer than 2 trade matches, then record_contractor(...) for
+     each one worth keeping (2-3 is plenty).
   3. For EACH recorded contractor, write a "draft_message" artifact
      {recipient_type: "contractor", recipient_ref: <contractor id>, body} — a quote request
      covering the problem and the property. Then pause AWAITING_LANDLORD_APPROVAL.
@@ -416,7 +525,10 @@ TOOLS = [
         "Web-search-backed lookup of local contractors for a trade near the property.",
         {"trade": {"type": "string"}, "area": {"type": "string"}}, ["trade", "area"]),
     _fn("record_contractor",
-        "Save one contractor to the contractors table (persists across turns).",
+        "Link a contractor to this issue (persists across turns). Works for both a newly "
+        "found contractor and a preferred contractor already listed in STATE — pass the "
+        "exact name shown in STATE for a preferred contractor so it is reused, not "
+        "duplicated.",
         {"name": {"type": "string"}, "trade": {"type": "string"}, "area": {"type": "string"},
          "contact": {"type": "string"}, "source_url": {"type": "string"}}, ["name"]),
     _fn("write_artifact",
@@ -473,8 +585,11 @@ def execute_tool(conn, issue_id, issue_text, trace, name: str, args: dict) -> st
         return out or "(find_contractors returned nothing)"
 
     if name == "record_contractor":
-        cid = add_contractor(conn, issue_id, args)
-        return f"contractor '{args.get('name')}' saved with id {cid}."
+        cid = find_or_create_contractor(conn, args)
+        linked = link_contractor_to_issue(conn, issue_id, cid)
+        if linked:
+            return f"contractor '{args.get('name')}' (id {cid}) linked to this issue."
+        return f"contractor '{args.get('name')}' (id {cid}) was already linked to this issue."
 
     if name == "write_artifact":
         kind = args.get("kind", "note")
@@ -505,7 +620,7 @@ def execute_tool(conn, issue_id, issue_text, trace, name: str, args: dict) -> st
 
 def run_turn(conn: sqlite3.Connection, issue_id: int, trigger: str) -> str:
     turn_no = event_count(conn, issue_id)  # each event drives one turn
-    trace = Trace(issue_id, turn_no, trigger)
+    trace = Trace(get_or_create_run_id(conn), issue_id, turn_no, trigger)
     issue = get_issue(conn, issue_id)
     messages = rehydrate(conn, issue_id)
     terminal = "NEEDS_HUMAN_REVIEW"
@@ -582,8 +697,19 @@ def cmd_show(conn: sqlite3.Connection, issue_id: int) -> None:
     print("  events:")
     for e in conn.execute("SELECT * FROM events WHERE issue_id=? ORDER BY id", (issue_id,)):
         print(f"    #{e['id']} {e['type']}  {e['received_at']}  {e['payload_json'][:160]}")
-    print("\n  contractors:")
-    for c in conn.execute("SELECT * FROM contractors WHERE issue_id=? ORDER BY id", (issue_id,)):
+    print("\n  contractors linked to this issue:")
+    for c in conn.execute(
+        "SELECT c.* FROM contractors c "
+        "JOIN issue_contractors ic ON ic.contractor_id = c.id "
+        "WHERE ic.issue_id = ? ORDER BY c.id", (issue_id,)):
+        tag = " [preferred]" if c["preferred"] else ""
+        print(f"    id={c['id']} {c['name']} | {c['trade']} | {c['contact']} | "
+              f"{c['source_url']}{tag}")
+    print("\n  preferred contractors not yet used on this issue:")
+    for c in conn.execute(
+        "SELECT c.* FROM contractors c WHERE c.preferred = 1 "
+        "AND c.id NOT IN (SELECT contractor_id FROM issue_contractors WHERE issue_id = ?) "
+        "ORDER BY c.id", (issue_id,)):
         print(f"    id={c['id']} {c['name']} | {c['trade']} | {c['contact']} | {c['source_url']}")
     print("\n  artifacts:")
     for a in conn.execute("SELECT * FROM issue_artifacts WHERE issue_id=? ORDER BY seq", (issue_id,)):
