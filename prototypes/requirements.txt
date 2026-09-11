@@ -1,6 +1,7 @@
 anthropic
 openai
 python-dotenv
+pyyaml
 langchain
 langchain-openai
 langgraph

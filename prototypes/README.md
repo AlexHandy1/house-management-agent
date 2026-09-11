@@ -41,6 +41,17 @@ separate steps with nothing enforcing the landlord's decision — see each file'
 
 Comparison and findings: `../docs/status_docs/WORK_SUMMARY_100926.md`.
 
+### State-management flow: cold-start-per-turn agent over a durable DB
+
+- `state_management_flow_prototype.py` — one stateless agent turn that wakes on an event,
+  rebuilds context purely from SQLite (the issue's event log + artifacts), runs a ReAct
+  loop, calls `pause(reason)`, and exits. No memory between turns; no framework. One prompt,
+  one tool set (`research_cost`, `find_contractors`, `record_contractor`,
+  `write_artifact(kind, data)`, `send_message`, `pause`) — the agent infers the route.
+  CLI: `init-db`, `report-issue`, `approve`, `reject`, `message --from …`, `event`, `show`.
+  `state_management_flow.db` and `logs/` are gitignored; `property.yaml` holds the static
+  property grounding. Findings: `../docs/status_docs/WORK_SUMMARY_100926.md` (last section).
+
 ## Run
 
 ```bash
