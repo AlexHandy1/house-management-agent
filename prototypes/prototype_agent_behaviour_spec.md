@@ -7,7 +7,7 @@ research cost tool focused
 - the research_cost tool must return a total cost estimate - an absolute number and range 
 - the research_cost tool must include a short explanation and rationale for its estimate
 - the research_cost tool should articulate areas of uncertainty and where more information mgiht imrpove its estimate 
-- the research_cost tool should not include extra narrative or generic explanation around why the costs might vary in circumstances not mentioned or relevant to the issue. For example, that emergency call outs are more expensive or how bills might be implemented ('engineers typically charge a call-out fee')
+- the research_cost tool should not include extra narrative or generic explanation/commentary around why the costs might vary in circumstances not mentioned or relevant to the issue. For example, that emergency call outs are more expensive or how bills might be implemented ('engineers typically charge a call-out fee' or 'Manchester, is outside the London M25 zone. Regional pricing for Manchester averages above the national UK average for certain jobs, while official manufacturers apply standard non-London rates')
 - the agent must only return content relevant to managing a rental property issue (adversarial cases)
 
 

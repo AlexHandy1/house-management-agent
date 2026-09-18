@@ -17,6 +17,7 @@ Run:
   ./.venv/bin/python cost_estimate_eval_harness.py batch                     # full synthetic_issues.yaml
   ./.venv/bin/python cost_estimate_eval_harness.py batch --sample 5          # random 5 of them
   ./.venv/bin/python cost_estimate_eval_harness.py batch --issues other.yaml # a different fixture file
+  ./.venv/bin/python cost_estimate_eval_harness.py self-test                 # no API key needed
 """
 
 from __future__ import annotations
@@ -42,7 +43,8 @@ from openai import OpenAI
 
 load_dotenv(Path(__file__).with_name(".env"))
 
-MODEL = "deepseek/deepseek-v4.1-flash-20260910"
+# MODEL = "deepseek/deepseek-v4.1-flash-20260910"
+MODEL = "inception/mercury-2.5"
 MAX_ROUNDS = 10
 WEB_PLUGIN = [{"id": "web", "max_results": 5}]
 USAGE_EXTRA = {"usage": {"include": True}}
@@ -87,6 +89,31 @@ def _fetch_generation(gen_id: str) -> dict | None:
             pass
         time.sleep(1.5)
     return None
+
+
+class ModelCallFailed(Exception):
+    """Raised when OpenRouter returns a response with no choices (provider-side error
+    surfaced as HTTP 200 + null choices, rather than a raised exception)."""
+
+
+def _create_with_retry(**kwargs):
+    """chat.completions.create, retried once if `choices` comes back empty/None.
+
+    Seen 18 Sep: a `mercury-2.5` call returned prompt=0/completion=0/cost=0 with
+    `choices=None` — no exception, just a shape the SDK can't use. Retry once (provider
+    load-balancing failover is transient), and if it fails again raise with the raw
+    response body so the actual OpenRouter error reason is visible instead of a bare
+    TypeError from indexing into None.
+    """
+    for attempt in (1, 2):
+        response = client.chat.completions.create(**kwargs)
+        if response.choices:
+            return response
+        dump = response.model_dump()
+        print(f"\n[warn] empty choices on attempt {attempt}, raw response: {dump}")
+        if attempt == 1:
+            time.sleep(2)
+    raise ModelCallFailed(f"No choices after 2 attempts. Last raw response: {dump}")
 
 
 def usage_from_response(label: str, response, latency_ms: int) -> dict:
@@ -204,7 +231,7 @@ TOOLS = [
 
 def research_cost(issue_text: str, property_location: str, trace: Trace) -> str:
     t0 = time.time()
-    resp = client.chat.completions.create(
+    resp = _create_with_retry(
         model=MODEL,
         # mercury-2.5 spends completion tokens on hidden reasoning before writing the
         # visible answer — 2000 was too low and left nothing for the answer itself
@@ -256,7 +283,7 @@ def run_issue(issue_id: str, issue_text: str, property_location: str, run_id: st
     for round_no in range(1, MAX_ROUNDS + 1):
         print(f"\n{'=' * 70}\nISSUE {issue_id}  ROUND {round_no}\n{'=' * 70}")
         t0 = time.time()
-        response = client.chat.completions.create(
+        response = _create_with_retry(
             model=MODEL, max_tokens=4000, tools=TOOLS, messages=messages, extra_body=USAGE_EXTRA,
         )
         usage = usage_from_response(f"loop_r{round_no}", response, int((time.time() - t0) * 1000))
@@ -345,20 +372,47 @@ def pretty_print_trace(path: Path) -> str:
 # path-conditional checks and text-extraction columns that weren't holding up).
 # ---------------------------------------------------------------------------
 
-# [\s*_]* between the label's colon and the £ sign tolerates Markdown decoration the
-# model sometimes adds (e.g. "**Best estimate:** £225") — a plain \s* misses the "**".
-BEST_ESTIMATE_RE = re.compile(r"Best estimate:[\s*_]*£\s*([\d,]+(?:\.\d+)?)", re.IGNORECASE)
+# [\s*_]* between a label's colon and the £ sign tolerates Markdown decoration the model
+# sometimes adds (e.g. "**Best estimate:** £225") — a plain \s* misses the "**".
+# Explicit dash characters (not a fragile unicode range) so "to" and every dash style the
+# model has actually produced (hyphen, en dash, em dash, minus sign) are all recognised;
+# the second £ is optional since the model sometimes drops it on the range's high end
+# (e.g. "Range: £300-1,000").
+_NUMBER = r"[\d,]+(?:\.\d+)?"
+_DASH_OR_TO = r"(?:[-–—−]|to)"
+
+BEST_ESTIMATE_RE = re.compile(rf"Best estimate:[\s*_]*£\s*({_NUMBER})", re.IGNORECASE)
 COST_RANGE_RE = re.compile(
-    r"Range:[\s*_]*£\s*([\d,]+(?:\.\d+)?)\s*[-‐-―]\s*£\s*([\d,]+(?:\.\d+)?)",
-    re.IGNORECASE)
+    rf"Range:[\s*_]*£\s*({_NUMBER})\s*{_DASH_OR_TO}\s*£?\s*({_NUMBER})", re.IGNORECASE)
 URL_RE = re.compile(r"https?://\S+")
+
+
+def _parse_amount(raw: str) -> float:
+    return float(raw.replace(",", ""))
+
+
+def extract_cost_estimate(text: str) -> dict:
+    """Pull the three cost numbers out of the model's final answer. Any of the three can be
+    `None` if not found — callers decide what that means (e.g. a clarifying-question reply
+    legitimately has none of them)."""
+    best_match = BEST_ESTIMATE_RE.search(text)
+    range_match = COST_RANGE_RE.search(text)
+    return {
+        "best": _parse_amount(best_match.group(1)) if best_match else None,
+        "low": _parse_amount(range_match.group(1)) if range_match else None,
+        "high": _parse_amount(range_match.group(2)) if range_match else None,
+    }
 
 
 def grade(issue_id: str, issue_text: str, research_calls: int, research_findings: list[str],
           final_text: str) -> dict:
-    best_match = BEST_ESTIMATE_RE.search(final_text)
-    cost_match = COST_RANGE_RE.search(final_text)
     sources = sorted(set(URL_RE.findall(" ".join(research_findings))))
+    estimate = extract_cost_estimate(final_text)
+    best, low, high = estimate["best"], estimate["low"], estimate["high"]
+
+    numbers_present = best is not None and low is not None and high is not None
+    range_valid = low is not None and high is not None and low <= high
+    best_within_range = numbers_present and range_valid and low <= best <= high
 
     return {
         "id": issue_id,
@@ -366,16 +420,99 @@ def grade(issue_id: str, issue_text: str, research_calls: int, research_findings
         "tool_calls_count": research_calls,
         "sources_found_count": len(sources),
         "sources_found": "; ".join(sources),
+        "best_estimate": best,
+        "range_low": low,
+        "range_high": high,
         "assert_sources_found_ge_2": len(sources) >= 2,
-        "assert_cost_estimate_present": bool(best_match and cost_match),
+        "assert_cost_numbers_present": numbers_present,
+        "assert_range_valid": range_valid,
+        "assert_best_within_range": best_within_range,
     }
 
 
 CSV_FIELDS = [
     "id", "issue_text", "trace_pretty", "cost_run_usd", "latency_s", "tool_calls_count",
-    "sources_found_count", "sources_found",
-    "assert_sources_found_ge_2", "assert_cost_estimate_present",
+    "sources_found_count", "sources_found", "best_estimate", "range_low", "range_high",
+    "assert_sources_found_ge_2", "assert_cost_numbers_present", "assert_range_valid",
+    "assert_best_within_range", "error",
 ]
+
+
+def failed_row(issue_id: str, issue_text: str, exc: Exception) -> dict:
+    """A CSV row for an issue that couldn't be run at all (see ModelCallFailed)."""
+    return {
+        "id": issue_id, "issue_text": issue_text, "trace_pretty": "", "cost_run_usd": 0.0,
+        "latency_s": 0.0, "tool_calls_count": 0, "sources_found_count": 0, "sources_found": "",
+        "best_estimate": None, "range_low": None, "range_high": None,
+        "assert_sources_found_ge_2": False, "assert_cost_numbers_present": False,
+        "assert_range_valid": False, "assert_best_within_range": False,
+        "error": str(exc),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Self-test — hand-written cases for extract_cost_estimate(), run with no API key and no
+# network calls. Lightweight substitute for a pytest suite (this repo has none, and the
+# only caller of this parsing logic is grade() below — see 18 Sep discussion).
+# ---------------------------------------------------------------------------
+
+SELF_TEST_CASES = [
+    ("plain",
+     "Best estimate: £225\nRange: £150-£300",
+     {"best": 225.0, "low": 150.0, "high": 300.0}),
+    ("markdown bold + en dash",
+     "**Best estimate:** £225\n**Range:** £150 – £300",
+     {"best": 225.0, "low": 150.0, "high": 300.0}),
+    ("comma thousands",
+     "Best estimate: £1,250\nRange: £900-£1,500",
+     {"best": 1250.0, "low": 900.0, "high": 1500.0}),
+    ("'to' separator, no second £",
+     "Best estimate: £600\nRange: £300 to 1,000",
+     {"best": 600.0, "low": 300.0, "high": 1000.0}),
+    ("em dash",
+     "Best estimate: £80\nRange: £50—£120",
+     {"best": 80.0, "low": 50.0, "high": 120.0}),
+    ("clarifying question, no numbers",
+     "Clarifying question: which room is the leak in?",
+     {"best": None, "low": None, "high": None}),
+    ("inverted range (low > high)",
+     "Best estimate: £250\nRange: £500-£200",
+     {"best": 250.0, "low": 500.0, "high": 200.0}),
+]
+
+
+def run_self_test() -> bool:
+    all_passed = True
+    for label, text, expected in SELF_TEST_CASES:
+        actual = extract_cost_estimate(text)
+        ok = actual == expected
+        all_passed &= ok
+        print(f"[{'PASS' if ok else 'FAIL'}] {label}: expected={expected} actual={actual}")
+
+    # A couple of grade()-level assertion checks, since extraction alone doesn't exercise
+    # assert_range_valid / assert_best_within_range.
+    grade_cases = [
+        ("best within range", "Best estimate: £225\nRange: £150-£300",
+         {"assert_cost_numbers_present": True, "assert_range_valid": True,
+          "assert_best_within_range": True}),
+        ("best outside range", "Best estimate: £900\nRange: £100-£300",
+         {"assert_cost_numbers_present": True, "assert_range_valid": True,
+          "assert_best_within_range": False}),
+        ("inverted range", "Best estimate: £250\nRange: £500-£200",
+         {"assert_cost_numbers_present": True, "assert_range_valid": False,
+          "assert_best_within_range": False}),
+        ("no numbers at all", "Clarifying question: which room?",
+         {"assert_cost_numbers_present": False, "assert_range_valid": False,
+          "assert_best_within_range": False}),
+    ]
+    for label, text, expected in grade_cases:
+        result = grade("t", "t", 0, [], text)
+        actual = {k: result[k] for k in expected}
+        ok = actual == expected
+        all_passed &= ok
+        print(f"[{'PASS' if ok else 'FAIL'}] grade/{label}: expected={expected} actual={actual}")
+
+    return all_passed
 
 
 def write_csv(rows: list[dict], path: Path) -> None:
@@ -402,7 +539,10 @@ def cmd_single(issue_text: str | None) -> None:
     issue_id = "hobs_manual_001" if not issue_text else "cli_manual_001"
     run_id = uuid.uuid4().hex[:8]
     property_location = _property_location()
-    result = run_issue(issue_id, text, property_location, run_id)
+    try:
+        result = run_issue(issue_id, text, property_location, run_id)
+    except ModelCallFailed as exc:
+        raise SystemExit(f"Model call failed: {exc}")
     print(json.dumps({k: v for k, v in result.items() if k != "trace_pretty"}, indent=2))
     csv_path = results_csv_path(run_id)
     write_csv([result], csv_path)
@@ -422,9 +562,14 @@ def cmd_batch(issues_path: Path, sample: int | None) -> None:
     rows = []
     for i, issue in enumerate(issues, start=1):
         print(f"\n{'=' * 70}\n[{i}/{len(issues)}] {issue['id']}\n{'=' * 70}")
-        result = run_issue(issue["id"], issue["text"], property_location, run_id)
+        try:
+            result = run_issue(issue["id"], issue["text"], property_location, run_id)
+        except ModelCallFailed as exc:
+            print(f"  [FAILED] {exc}")
+            rows.append(failed_row(issue["id"], issue["text"], exc))
+            continue
         print(f"  sources={result['sources_found_count']} "
-              f"cost_present={result['assert_cost_estimate_present']} "
+              f"best_in_range={result['assert_best_within_range']} "
               f"cost=${result['cost_run_usd']:.5f}")
         rows.append(result)
     csv_path = results_csv_path(run_id)
@@ -439,7 +584,7 @@ def _property_location() -> str:
 
 def main() -> None:
     ap = argparse.ArgumentParser(description="cost-estimate eval harness")
-    ap.add_argument("command", choices=["single", "batch"])
+    ap.add_argument("command", choices=["single", "batch", "self-test"])
     ap.add_argument("--text", help="single: raw issue text (defaults to the hobs example)")
     ap.add_argument("--issues", type=Path,
                      help=f"batch: path to an issues YAML file (defaults to "
@@ -447,6 +592,9 @@ def main() -> None:
     ap.add_argument("--sample", type=int,
                      help="batch: run a random subset of N issues instead of the whole file")
     args = ap.parse_args()
+
+    if args.command == "self-test":
+        raise SystemExit(0 if run_self_test() else 1)
 
     if not OPENROUTER_API_KEY:
         raise SystemExit("Set OPENROUTER_API_KEY in prototypes/.env first.")
