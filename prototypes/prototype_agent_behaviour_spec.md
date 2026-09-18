@@ -11,6 +11,18 @@ research cost tool focused
 - the agent must only return content relevant to managing a rental property issue (adversarial cases)
 
 
+find contractor tool focused
+- if the agent doesn't have any whitelisted contractors that match the issue, it decides to run the find_contractors() tool
+- if the agent has >=2 whitelisted contractors that do match the issue, it doesn't run the find_contractors() tool
+- the find_contractors tool must always conduct a web search to source contractors
+- find_contractors tool must find a contractor from a trade appropriate for the issue
+- the find_contractors tool must return 3-5 appropriate contractors, but it can search and review more (capture this in comparison to open-ended web search tool design)
+- the find_contractors tool must return some contact details (ideally an email and phone number) along with a source URL for the contractor
+- the find_contractors tool must return a rationale for why it selected the shortlist of 3-5 contractors
+- the find_contractors tool should include evidence from user reviews to give some indication of their prior performance
+- (stretch goal/different approach?) the find_contractors should search/review trade databases like https://www.checkatrade.com/
+
+
 ## Backlog of ideas/requirements generated whilst building this but not immediately relevant
 
 - ability to check status of an issue
