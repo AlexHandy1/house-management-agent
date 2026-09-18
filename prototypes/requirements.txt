@@ -5,3 +5,5 @@ pyyaml
 langchain
 langchain-openai
 langgraph
+langfuse
+deepeval
