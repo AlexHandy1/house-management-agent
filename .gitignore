@@ -6,3 +6,7 @@ __pycache__/
 *.env
 prototypes/logs/
 prototypes/*.db
+.deepeval/
+.deepeval-cache.json
+.temp_test_run_data.json
+tests/.security_review_output/
