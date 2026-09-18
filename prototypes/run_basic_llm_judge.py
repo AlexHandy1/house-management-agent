@@ -54,6 +54,8 @@ check its claims are actually grounded in real findings, not invented):
 {research_findings}
 --- find_contractors findings ---
 {contractor_findings}
+--- other tool findings (e.g. a generic web_search tool) ---
+{other_findings}
 
 Final response to judge:
 ---
@@ -66,12 +68,12 @@ contractors should get "N" on criteria 1/2 (explain why in notes — that is a l
 outcome, not necessarily a bad one, but it did not meet the criterion itself).
 
 1. cost_estimate_evidenced: Does the final response give a cost estimate for the issue, as \
-a range, that is actually grounded in the research_cost findings above (not invented or \
-contradicted by them)?
+a range, that is actually grounded in the cost-research findings above — research_cost or \
+a generic web_search — (not invented or contradicted by them)?
 2. contractors_evidenced: Does the final response list contractor(s) relevant to this \
 issue's trade, with contact details, and evidence for why each was selected (either from \
-the find_contractors findings above, or because they are an explicitly preferred/\
-whitelisted contractor)?
+the contractor-search findings above — find_contractors or a generic web_search — or \
+because they are an explicitly preferred/whitelisted contractor)?
 3. concise: Is the final response free of unnecessary narrative or padding beyond what's \
 needed to convey the estimate, contractors, and rationale?
 
@@ -90,10 +92,13 @@ def build_judge_input(events: list[dict]) -> dict:
     final_message = next(
         (e for e in reversed(events) if e["kind"] == "model_message" and e.get("content")),
         None)
-    tool_results = {"research_cost": [], "find_contractors": []}
+    tool_results = {"research_cost": [], "find_contractors": [], "other": []}
     for e in events:
-        if e["kind"] == "tool_result" and e["name"] in tool_results:
-            tool_results[e["name"]].append(e["result"])
+        if e["kind"] != "tool_result":
+            continue
+        bucket = e["name"] if e["name"] in ("research_cost", "find_contractors") else "other"
+        entry = e["result"] if bucket != "other" else f"[{e['name']}] {e['result']}"
+        tool_results[bucket].append(entry)
 
     return {
         "issue_id": run_start.get("issue_id", "?"),
@@ -101,6 +106,7 @@ def build_judge_input(events: list[dict]) -> dict:
         "final_text": final_message["content"] if final_message else "(no final response found)",
         "research_findings": "\n\n".join(tool_results["research_cost"]) or "(not called)",
         "contractor_findings": "\n\n".join(tool_results["find_contractors"]) or "(not called)",
+        "other_findings": "\n\n".join(tool_results["other"]) or "(none)",
     }
 
 
@@ -111,6 +117,7 @@ def judge_trace(path: Path) -> dict:
         issue_text=judge_input["issue_text"],
         research_findings=judge_input["research_findings"],
         contractor_findings=judge_input["contractor_findings"],
+        other_findings=judge_input["other_findings"],
         final_text=judge_input["final_text"],
     )
 
