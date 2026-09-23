@@ -1,0 +1,135 @@
+name: CI/CD
+
+on:
+  pull_request:
+    paths:
+      - "app/**"
+      - ".github/workflows/ci-cd.yml"
+  push:
+    branches: [main]
+    paths:
+      - "app/**"
+      - ".github/workflows/ci-cd.yml"
+
+env:
+  PROJECT_ID: house-management-agent
+  REGION: europe-west1
+  SERVICE: house-management-agent-production
+  IMAGE: europe-west1-docker.pkg.dev/house-management-agent/house-management-agent/app
+
+jobs:
+  lint-typecheck-backend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: app/backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: pip install -r requirements-dev.txt
+      - run: ruff check .
+      - run: mypy .
+
+  lint-typecheck-frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: app/frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: app/frontend/package-lock.json
+      - run: npm ci
+      - run: npm run lint
+      - run: npx tsc -b
+
+  unit-tests-backend:
+    needs: lint-typecheck-backend
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: app/backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: pip install -r requirements-dev.txt
+      - run: python -m pytest
+
+  unit-tests-frontend:
+    needs: lint-typecheck-frontend
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: app/frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: app/frontend/package-lock.json
+      - run: npm ci
+      - run: npx vitest run
+
+  build:
+    needs: [unit-tests-backend, unit-tests-frontend]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -f app/backend/Dockerfile -t "$IMAGE:${{ github.sha }}" .
+
+  # Deploy only runs on a push to main, never on a pull_request (including
+  # ones from forks) — GCP's own Workload Identity Federation trust condition
+  # (infra/wif.tf) enforces this independently of this `if`, so a modified
+  # workflow file in a fork PR still can't obtain deploy credentials.
+  deploy:
+    needs: build
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.WIF_PROVIDER }}
+          service_account: ${{ vars.DEPLOY_SERVICE_ACCOUNT }}
+
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - run: gcloud auth configure-docker "$REGION-docker.pkg.dev" --quiet
+
+      - run: |
+          docker build -f app/backend/Dockerfile -t "$IMAGE:${{ github.sha }}" .
+          docker push "$IMAGE:${{ github.sha }}"
+
+      - run: |
+          gcloud run deploy "$SERVICE" \
+            --image="$IMAGE:${{ github.sha }}" \
+            --region="$REGION" \
+            --project="$PROJECT_ID" \
+            --quiet
+
+      - name: Post-deploy readiness check
+        # Not an HTTP smoke test: IAP gates every path on this service, and
+        # the deploy identity deliberately has no IAP access (see infra/wif.tf
+        # and infra/README.md) — an unauthenticated curl would only prove IAP
+        # itself is working, not the app underneath it. Checking Cloud Run's
+        # own readiness condition confirms the container started and passed
+        # its startup probe, without widening this credential's scope.
+        run: |
+          READY=$(gcloud run services describe "$SERVICE" --region="$REGION" --project="$PROJECT_ID" \
+            --format='value(status.conditions[?type=Ready].status)')
+          if [ "$READY" != "True" ]; then
+            echo "Deployment did not become Ready" >&2
+            exit 1
+          fi

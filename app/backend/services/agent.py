@@ -6,7 +6,7 @@ from langfuse import get_client
 from openai import OpenAI
 
 MODEL = "inception/mercury-2.5"
-SECRET_ID = "openrouter-api-key"
+SECRET_ID = "OPENROUTER_API_KEY"
 
 SYSTEM_PROMPT = (
     "You are a helpful rental property maintenance agent. A landlord will describe "

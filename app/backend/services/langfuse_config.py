@@ -6,8 +6,8 @@ from google.cloud import secretmanager
 
 logger = logging.getLogger(__name__)
 
-PUBLIC_KEY_SECRET_ID = "langfuse-public-key"
-SECRET_KEY_SECRET_ID = "langfuse-secret-key"
+PUBLIC_KEY_SECRET_ID = "LANGFUSE_PUBLIC_KEY"
+SECRET_KEY_SECRET_ID = "LANGFUSE_SECRET_KEY"
 
 
 def configure() -> None:
