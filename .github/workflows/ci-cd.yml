@@ -128,7 +128,7 @@ jobs:
         # its startup probe, without widening this credential's scope.
         run: |
           READY=$(gcloud run services describe "$SERVICE" --region="$REGION" --project="$PROJECT_ID" \
-            --format='value(status.conditions[?type=Ready].status)')
+            --format=json | jq -r '.status.conditions[] | select(.type=="Ready") | .status')
           if [ "$READY" != "True" ]; then
             echo "Deployment did not become Ready" >&2
             exit 1
