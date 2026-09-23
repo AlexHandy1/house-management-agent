@@ -1,5 +1,8 @@
+import json
 import logging
+import sys
 from pathlib import Path
+from typing import ClassVar
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, Request
@@ -13,6 +16,30 @@ from services.rate_limiter import handle_rate_limit_exceeded, limiter
 
 load_dotenv()
 langfuse_config.configure()
+
+
+class JsonLogFormatter(logging.Formatter):
+    """Renders log records as one JSON line per entry, so Cloud Run's stdout
+    capture parses them into structured (queryable) Cloud Logging fields —
+    e.g. jsonPayload.iap_email — instead of one opaque text blob."""
+
+    _RESERVED_KEYS: ClassVar[set[str]] = set(logging.makeLogRecord({}).__dict__.keys())
+
+    def format(self, record: logging.LogRecord) -> str:
+        payload = {"severity": record.levelname, "message": record.getMessage()}
+        payload.update(
+            {k: v for k, v in record.__dict__.items() if k not in self._RESERVED_KEYS}
+        )
+        return json.dumps(payload)
+
+
+# Without this, Python's root logger defaults to WARNING and every
+# logger.info(...) call in this app is silently dropped before it ever
+# reaches stdout/Cloud Logging — confirmed happening in a real deploy
+# (see tests/test_logging_config.py).
+handler = logging.StreamHandler(sys.stdout)
+handler.setFormatter(JsonLogFormatter())
+logging.basicConfig(level=logging.INFO, handlers=[handler])
 
 logger = logging.getLogger(__name__)
 
