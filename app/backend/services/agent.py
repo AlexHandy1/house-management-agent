@@ -2,6 +2,7 @@ import os
 
 import google.auth
 from google.cloud import secretmanager
+from langfuse import get_client
 from openai import OpenAI
 
 MODEL = "inception/mercury-2.5"
@@ -38,11 +39,17 @@ def _fetch_api_key_from_secret_manager() -> str:
 
 
 def respond_to_issue(issue_text: str, client: OpenAI) -> str:
-    completion = client.chat.completions.create(
-        model=MODEL,
-        messages=[
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": issue_text},
-        ],
-    )
-    return completion.choices[0].message.content or ""
+    langfuse = get_client()
+    with langfuse.start_as_current_observation(
+        as_type="generation", name="respond_to_issue", model=MODEL, input=issue_text
+    ) as generation:
+        completion = client.chat.completions.create(
+            model=MODEL,
+            messages=[
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user", "content": issue_text},
+            ],
+        )
+        reply = completion.choices[0].message.content or ""
+        generation.update(output=reply)
+    return reply

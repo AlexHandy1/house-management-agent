@@ -4,9 +4,11 @@ from slowapi.errors import RateLimitExceeded
 
 from routers.health import router as health_router
 from routers.issue import router as issue_router
+from services import langfuse_config
 from services.rate_limiter import handle_rate_limit_exceeded, limiter
 
 load_dotenv()
+langfuse_config.configure()
 
 
 def create_app() -> FastAPI:
