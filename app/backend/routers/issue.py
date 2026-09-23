@@ -1,8 +1,12 @@
+import logging
+
 from fastapi import APIRouter, Request
 from pydantic import BaseModel, Field
 
 from services.agent import build_client, respond_to_issue
 from services.rate_limiter import limiter
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -18,5 +22,6 @@ class IssueResponse(BaseModel):
 @router.post("/api/issue")
 @limiter.limit("10/minute")
 def submit_issue(request: Request, issue: IssueRequest) -> IssueResponse:
+    logger.info("Issue submitted")
     reply = respond_to_issue(issue.issue_text, build_client())
     return IssueResponse(response=reply)

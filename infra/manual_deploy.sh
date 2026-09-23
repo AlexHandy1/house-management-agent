@@ -38,7 +38,7 @@ echo "==> Checking the new revision is Ready"
 # instead confirms the container started and passed its startup probe,
 # without granting this deploy identity any access through IAP.
 READY="$(gcloud run services describe "$SERVICE" --region="$REGION" --project="$PROJECT_ID" \
-  --format='value(status.conditions[?type=Ready].status)')"
+  --format=json | jq -r '.status.conditions[] | select(.type=="Ready") | .status')"
 if [ "$READY" != "True" ]; then
   echo "Deploy of ${SHA} did not become Ready." >&2
   exit 1
