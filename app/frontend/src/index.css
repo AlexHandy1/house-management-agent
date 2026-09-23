@@ -1,0 +1,116 @@
+:root {
+  --text: #4b4a52;
+  --text-h: #17151f;
+  --bg: #fafafa;
+  --surface: #fff;
+  --border: #dcdbe0;
+  --accent: #7c3aed;
+  --accent-text: #fff;
+
+  --sans: system-ui, 'Segoe UI', Roboto, sans-serif;
+
+  font: 16px/150% var(--sans);
+  color-scheme: light dark;
+  color: var(--text);
+  background: var(--bg);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --text: #c3c1ca;
+    --text-h: #f3f2f6;
+    --bg: #16151b;
+    --surface: #1e1d24;
+    --border: #34333c;
+    --accent: #a78bfa;
+    --accent-text: #16151b;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+}
+
+#root {
+  min-height: 100svh;
+  display: flex;
+  justify-content: center;
+  padding: 48px 24px;
+}
+
+main {
+  width: 100%;
+  max-width: 640px;
+}
+
+h1 {
+  font-size: 32px;
+  font-weight: 600;
+  color: var(--text-h);
+  margin: 0 0 24px;
+}
+
+.issue-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 20px;
+}
+
+.issue-form label {
+  font-weight: 600;
+  color: var(--text-h);
+}
+
+.issue-form textarea {
+  min-height: 140px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--text-h);
+  font: inherit;
+  resize: vertical;
+}
+
+.issue-form textarea:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.issue-form button {
+  align-self: flex-start;
+  padding: 10px 20px;
+  border: none;
+  border-radius: 8px;
+  background: var(--accent);
+  color: var(--accent-text);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.issue-form button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.agent-response {
+  margin-top: 24px;
+  padding: 16px 20px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--accent);
+  background: var(--surface);
+  color: var(--text-h);
+  white-space: pre-wrap;
+}

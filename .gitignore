@@ -10,3 +10,4 @@ prototypes/*.db
 .deepeval-cache.json
 .temp_test_run_data.json
 tests/.security_review_output/
+*iap_settings.yaml

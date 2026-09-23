@@ -1,0 +1,9 @@
+.git/
+app/backend/venv/
+app/backend/__pycache__/
+app/backend/.pytest_cache/
+app/frontend/node_modules/
+app/frontend/dist/
+prototypes/
+docs/
+*.md
