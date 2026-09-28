@@ -10,6 +10,7 @@ import google.auth
 import yaml
 from google.cloud import secretmanager
 from langfuse import get_client
+from langfuse.openai import OpenAI as TracedOpenAI
 from openai import OpenAI
 from openai.types.chat import (
     ChatCompletionFunctionToolParam,
@@ -128,7 +129,9 @@ Rules:
 
 
 def build_client() -> OpenAI:
-    return OpenAI(
+    """Langfuse's drop-in OpenAI client: every model call (including tool calls and
+    the research_cost sub-call) is traced as a generation with tokens and latency."""
+    return TracedOpenAI(
         base_url="https://openrouter.ai/api/v1",
         api_key=resolve_api_key(),
     )
@@ -171,7 +174,18 @@ def respond_to_issue(issue_text: str, client: OpenAI) -> str:
 def run_agent(issue_text: str, client: OpenAI, save: Save) -> AgentOutcome:
     """Runs the agent until it writes its result by calling a save_* tool. If it
     never does, the runtime saves a `failed` outcome instead, so every run results
-    in exactly one saved row."""
+    in exactly one saved row. The whole run is one Langfuse span, so the model calls
+    made through the traced client (see build_client) nest under a single trace."""
+    langfuse = get_client()
+    with langfuse.start_as_current_observation(
+        as_type="span", name="run_agent", input=issue_text
+    ) as span:
+        outcome = _run_loop(issue_text, client, save)
+        span.update(output=outcome.model_dump(mode="json"))
+    return outcome
+
+
+def _run_loop(issue_text: str, client: OpenAI, save: Save) -> AgentOutcome:
     messages: list[ChatCompletionMessageParam] = [
         {"role": "system", "content": _agent_system_prompt()},
         {"role": "user", "content": f"Maintenance issue reported:\n\n{issue_text}"},
