@@ -43,7 +43,23 @@ SAVE_COST_ESTIMATE_TOOL: ChatCompletionFunctionToolParam = {
         },
     },
 }
-TOOLS = [SAVE_COST_ESTIMATE_TOOL]
+SAVE_CLARIFYING_QUESTION_TOOL: ChatCompletionFunctionToolParam = {
+    "type": "function",
+    "function": {
+        "name": "save_clarifying_question",
+        "description": (
+            "Write a clarifying question to the issues database when the issue is too "
+            "vague to ground a cost estimate (e.g. it doesn't say what is broken). This "
+            "is the only way your question is recorded, and it ends the task."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {"question": {"type": "string"}},
+            "required": ["question"],
+        },
+    },
+}
+TOOLS = [SAVE_COST_ESTIMATE_TOOL, SAVE_CLARIFYING_QUESTION_TOOL]
 
 SYSTEM_PROMPT = (
     "You are a helpful rental property maintenance agent. A landlord will describe "
@@ -102,19 +118,28 @@ def run_agent(issue_text: str, client: OpenAI, save: Save) -> AgentOutcome:
     ]
     for _ in range(MAX_ROUNDS):
         response = client.chat.completions.create(model=MODEL, tools=TOOLS, messages=messages)
-        for call in response.choices[0].message.tool_calls or []:
+        tool_calls = response.choices[0].message.tool_calls
+        if not tool_calls:
+            break  # the model stopped without saving a result
+        for call in tool_calls:
             if call.type != "function":
                 continue
+            args = json.loads(call.function.arguments)
             if call.function.name == "save_cost_estimate":
-                args = json.loads(call.function.arguments)
                 outcome = AgentOutcome(
                     status="done",
                     cost_best=Decimal(str(args["best"])),
                     cost_low=Decimal(str(args["low"])),
                     cost_high=Decimal(str(args["high"])),
                 )
-                save(issue_text, outcome)
-                return outcome
+            elif call.function.name == "save_clarifying_question":
+                outcome = AgentOutcome(
+                    status="needs_info", clarifying_question=args["question"]
+                )
+            else:
+                continue
+            save(issue_text, outcome)
+            return outcome
     outcome = AgentOutcome(status="failed")
     save(issue_text, outcome)
     return outcome

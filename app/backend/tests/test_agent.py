@@ -23,6 +23,11 @@ def tool_call_reply(name, arguments):
     return SimpleNamespace(choices=[SimpleNamespace(message=message, finish_reason="tool_calls")])
 
 
+def text_reply(content):
+    message = SimpleNamespace(content=content, tool_calls=None)
+    return SimpleNamespace(choices=[SimpleNamespace(message=message, finish_reason="stop")])
+
+
 def llm_replying_with(*replies):
     llm = MagicMock()
     llm.chat.completions.create.side_effect = list(replies)
@@ -46,3 +51,31 @@ def test_the_agent_saves_the_cost_estimate_it_commits_to():
         Decimal(150),
         Decimal(300),
     )
+
+
+def test_the_agent_saves_a_clarifying_question_when_the_issue_is_too_vague():
+    llm = llm_replying_with(
+        tool_call_reply("save_clarifying_question", {"question": "Which room is affected?"})
+    )
+    saved = []
+
+    outcome = agent.run_agent(
+        "Something is broken", llm, save=lambda text, o: saved.append((text, o))
+    )
+
+    assert saved == [("Something is broken", outcome)]
+    assert outcome.status == "needs_info"
+    assert outcome.clarifying_question == "Which room is affected?"
+    assert outcome.cost_best is None
+
+
+def test_a_failed_outcome_is_saved_when_the_agent_stops_without_saving_a_result():
+    llm = llm_replying_with(text_reply("It's probably a washer."))
+    saved = []
+
+    outcome = agent.run_agent(
+        "The tap drips", llm, save=lambda text, o: saved.append((text, o))
+    )
+
+    assert saved == [("The tap drips", outcome)]
+    assert outcome.status == "failed"
