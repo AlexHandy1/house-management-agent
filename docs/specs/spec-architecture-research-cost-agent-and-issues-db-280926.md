@@ -27,7 +27,7 @@ implemented by an agent with no other context — read it fully before writing c
 
 **Does:**
 - Expand the agent harness: system prompt, tool set (`research_cost`, plus the write tools
-  `conclude_estimate` and `request_info`) and a ReAct loop that ends when a write tool saves the
+  `save_cost_estimate` and `save_clarifying_question`) and a ReAct loop that ends when a write tool saves the
   outcome.
 - Add a Postgres `issues` table holding **concluded** work only, working locally (Docker/local
   Postgres) and in the cloud (Postgres on a Compute Engine VM, private networking).
@@ -38,7 +38,7 @@ implemented by an agent with no other context — read it fully before writing c
 ### Who writes to the database: the agent, through write tools
 
 **The agent decides when to write.** It concludes by calling a write tool —
-`conclude_estimate` (it has an estimate) or `request_info` (the issue is too vague). The tool
+`save_cost_estimate` (it has an estimate) or `save_clarifying_question` (the issue is too vague). The tool
 validates the arguments, saves the row via an injected `save` function, and ends the run. This
 follows `state_management_flow_prototype.py`, where the agent drives state changes through tools.
 Building agent-in-the-loop writes in from this simple base is deliberate: it stress-tests that
@@ -48,7 +48,7 @@ approvals, drafts) is added.
 | Step | Owner |
 |---|---|
 | Choosing estimate vs. clarifying question; calling `research_cost` | Agent |
-| Deciding *when* to write, by calling `conclude_estimate` / `request_info` | Agent |
+| Deciding *when* to write, by calling `save_cost_estimate` / `save_clarifying_question` | Agent |
 | Validating tool arguments; attaching sources; performing the INSERT | Write-tool handler (runtime code the agent invokes) |
 | Recording `failed` when the run errors or ends without a write | Runtime (agent has no failure tool) |
 | Guaranteeing exactly one row per run | Runtime |
@@ -112,14 +112,14 @@ approvals, drafts) is added.
 - **REQ-001**: `POST /api/issue` runs the agent synchronously and returns the resulting issue
   record (status `done`, `needs_info` or `failed`).
 - **REQ-002**: A row is written **once**, at conclusion. No `running` status, no in-progress rows.
-- **REQ-003**: The agent concludes by calling exactly one of `conclude_estimate` or
-  `request_info`. A valid call saves the row (via the injected `save`) and ends the loop.
+- **REQ-003**: The agent concludes by calling exactly one of `save_cost_estimate` or
+  `save_clarifying_question`. A valid call saves the row (via the injected `save`) and ends the loop.
 - **REQ-004**: If the loop raises, exhausts `MAX_ROUNDS`, or ends without a write-tool call, the
   runtime writes a `failed` row itself (source_text + status only) via the same `save`. The agent
   has no failure tool. Exactly one `save` call happens per run.
 - **REQ-005**: `supporting_web_sources` is populated by the runtime from URLs in `research_cost`
   results, never from model-supplied arguments.
-- **REQ-006**: `conclude_estimate` arguments are validated (best/low/high numeric, `0 ≤ low ≤ best
+- **REQ-006**: `save_cost_estimate` arguments are validated (best/low/high numeric, `0 ≤ low ≤ best
   ≤ high`); invalid arguments are returned to the model as a tool error so it can retry within
   the round budget. The same validator is used by the evals.
 - **REQ-007**: `GET /api/issues` returns all issues, newest first.
@@ -167,8 +167,8 @@ Cost columns are non-null only for `done`; `clarifying_question` only for `needs
 | Tool | Args | Effect |
 |---|---|---|
 | `research_cost` | none | Web-search sub-call (prototype prompt, `max_tokens=6000`, `web` plugin). Returns raw findings; runtime records source URLs found in them. |
-| `conclude_estimate` | `best`, `low`, `high` (numbers, GBP) | **Write tool.** Validates (REQ-006); on success builds a `done` outcome (with runtime-collected sources), calls `save`, and ends the loop. |
-| `request_info` | `question` (string) | **Write tool.** Builds a `needs_info` outcome, calls `save`, and ends the loop. Used when the issue is too vague to ground an estimate. |
+| `save_cost_estimate` | `best`, `low`, `high` (numbers, GBP) | **Write tool.** Validates (REQ-006); on success builds a `done` outcome (with runtime-collected sources), calls `save`, and ends the loop. |
+| `save_clarifying_question` | `question` (string) | **Write tool.** Builds a `needs_info` outcome, calls `save`, and ends the loop. Used when the issue is too vague to ground an estimate. |
 
 ### 5.3 AgentOutcome and `run_agent`
 
@@ -298,8 +298,8 @@ TDD, one vertical slice at a time (`/tdd`, `/testing`); behaviour through public
 
 **Unit (LLM client stubbed with a scripted `MagicMock`, `save` injected as a capturing fake;
 deliberately minimal — only paths the live evals cannot cover reliably):**
-- Agent calls `conclude_estimate` → `save` called once with a `done` outcome.
-- Agent calls `request_info` → `save` called once with a `needs_info` outcome.
+- Agent calls `save_cost_estimate` → `save` called once with a `done` outcome.
+- Agent calls `save_clarifying_question` → `save` called once with a `needs_info` outcome.
 - Agent never calls a write tool (or the model errors) → runtime calls `save` once with `failed`.
 - Invalid estimate args (best outside range) are bounced back as a tool error and a corrected
   retry succeeds, with a single `save`.
@@ -352,7 +352,7 @@ Manager), Postgres, `psycopg`, `pyyaml`, local Docker (or repaired Homebrew Post
 - Adversarial/injection issue text → prompt rule; expected outcome `needs_info` (prototype
   behaviour, `synthetic_issues.yaml`). Provider hard-refusals surface as exceptions → `failed`
   (PRD risk table).
-- `conclude_estimate` with `best` outside `[low, high]` → tool error, model retries (no `save`).
+- `save_cost_estimate` with `best` outside `[low, high]` → tool error, model retries (no `save`).
 - The DB write itself raising inside a write tool → error propagates (500); the runtime does not
   attempt a second `failed` write against a failing DB.
 
