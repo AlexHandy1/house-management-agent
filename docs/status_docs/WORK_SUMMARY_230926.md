@@ -30,8 +30,26 @@ Phase 1 MVP scaffolding, end to end, from empty repo to a real deployed app behi
   (Langfuse observability + secrets resolution patterns), `README.md` status updated.
 
 **Deployed and verified working**: `https://house-management-agent-production-617555935510.europe-west1.run.app/`
-— IAP sign-in confirmed functioning (authenticated as `alex.handy.research@gmail.com`), real app
-deploy pending merge of branch `clean_up_production_scaffolding`.
+— IAP sign-in confirmed functioning (authenticated as `alex.handy.research@gmail.com`).
+`clean_up_production_scaffolding` (readiness-check fix + docs/ADRs) was pushed, PR'd, and merged
+to `main` — the real app image (not Terraform's placeholder) is now deployed and serving traffic
+(revision `house-management-agent-production-00004-9fv` confirmed live via `gcloud run services
+describe`).
+
+- **Logging bug found and fixed** (branch `build_out_issue_agent_functionality`): checked real
+  Cloud Logging output after deploy and found no "Issue submitted" entries despite requests
+  succeeding. Root cause: nothing in the app called `logging.basicConfig()` (or otherwise
+  configured the root logger), so it defaulted to `WARNING` — every `logger.info(...)` call
+  (route-triggered logging in `routers/issue.py`, the IAP-identity log line in `main.py`) was
+  silently dropped before reaching stdout. Uvicorn's own access logs appeared fine, masking this,
+  since uvicorn configures its own logger independently. Fixed in `main.py`: added
+  `logging.basicConfig(level=logging.INFO)` with a JSON formatter (mirrors nature-quest's
+  pattern), so `iap_email`/`path` extras become structured, queryable Cloud Logging fields
+  (`jsonPayload.iap_email`) rather than a flat message string. Added
+  `tests/test_logging_config.py` as a regression test — existing tests didn't catch this because
+  `caplog.at_level(logging.INFO)` temporarily overrides the level during a test, masking the fact
+  that nothing configures it for the real app. Committed; not yet merged to `main` — see Next
+  steps.
 
 ## What was explored / learnt
 
@@ -106,13 +124,11 @@ deploy pending merge of branch `clean_up_production_scaffolding`.
 
 ## Next steps
 
-1. Push branch `clean_up_production_scaffolding`, open a PR, merge to `main` — this triggers the
-   first real CI/CD deploy of the actual app (current deployed revision is still Terraform's
-   placeholder `hello` image). Was in progress when the session's `/documentation-and-adrs` +
-   `/summarise-session` request interrupted it.
-2. After merge, verify the real app end-to-end through IAP sign-in at the deployed URL — confirm
-   the "Issue submitted" log line and the IAP-identity log line both show up in Cloud Run logs
-   (the whole point of this session's last app change).
+1. Push branch `build_out_issue_agent_functionality` (has the logging fix), open a PR, merge to
+   `main` — triggers the deploy that actually surfaces the fix.
+2. After that merge, re-check Cloud Logging — confirm the "Issue submitted" log line and the
+   IAP-identity log line both now show up as structured JSON entries
+   (`jsonPayload.message`/`jsonPayload.iap_email`), which is what motivated the fix.
 3. Consider deleting `infra/iap_settings.yaml` locally now that its settings are applied (it's
    gitignored, but still holds the OAuth client secret in plaintext on disk) — left for the user
    to decide/handle directly rather than have it edited by the agent.
