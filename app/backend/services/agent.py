@@ -1,16 +1,21 @@
 import json
 import os
+import re
 from collections.abc import Callable
 from decimal import Decimal
+from pathlib import Path
 from typing import Any
 
 import google.auth
+import yaml
 from google.cloud import secretmanager
 from langfuse import get_client
 from openai import OpenAI
 from openai.types.chat import (
     ChatCompletionFunctionToolParam,
+    ChatCompletionMessageFunctionToolCallParam,
     ChatCompletionMessageParam,
+    ChatCompletionToolMessageParam,
 )
 
 from models.agent_outcome import AgentOutcome
@@ -18,10 +23,31 @@ from models.agent_outcome import AgentOutcome
 MODEL = "inception/mercury-2.5"
 SECRET_ID = "OPENROUTER_API_KEY"
 MAX_ROUNDS = 10
+PROPERTY_YAML = Path(__file__).parent.parent / "config" / "property.yaml"
+
+# OpenRouter's web-search plugin, used by the research_cost sub-call. max_tokens is 6000
+# because mercury-2.5 spends completion tokens on hidden reasoning before the visible
+# answer — 2000 left nothing for the answer itself (prototype traces, 16 Sep).
+WEB_PLUGIN = [{"id": "web", "max_results": 5}]
+RESEARCH_MAX_TOKENS = 6000
+URL_RE = re.compile(r"https?://[^\s<>\"')\]]+")
 
 # Persists an outcome for an issue. Injected so the agent never imports the DB:
 # production passes issues_db.save, evals pass a capturing function.
 Save = Callable[[str, AgentOutcome], Any]
+
+RESEARCH_COST_TOOL: ChatCompletionFunctionToolParam = {
+    "type": "function",
+    "function": {
+        "name": "research_cost",
+        "description": (
+            "Web-search-backed lookup of repair/replacement costs for the reported issue. "
+            "Returns raw findings (price points, call-out fees, source URLs), not a final "
+            "estimate — you decide the numbers. Takes no arguments."
+        ),
+        "parameters": {"type": "object", "properties": {}},
+    },
+}
 
 SAVE_COST_ESTIMATE_TOOL: ChatCompletionFunctionToolParam = {
     "type": "function",
@@ -59,7 +85,7 @@ SAVE_CLARIFYING_QUESTION_TOOL: ChatCompletionFunctionToolParam = {
         },
     },
 }
-TOOLS = [SAVE_COST_ESTIMATE_TOOL, SAVE_CLARIFYING_QUESTION_TOOL]
+TOOLS = [RESEARCH_COST_TOOL, SAVE_COST_ESTIMATE_TOOL, SAVE_CLARIFYING_QUESTION_TOOL]
 
 SYSTEM_PROMPT = (
     "You are a helpful rental property maintenance agent. A landlord will describe "
@@ -116,30 +142,86 @@ def run_agent(issue_text: str, client: OpenAI, save: Save) -> AgentOutcome:
         {"role": "system", "content": SYSTEM_PROMPT},
         {"role": "user", "content": issue_text},
     ]
+    sources: set[str] = set()
     for _ in range(MAX_ROUNDS):
         response = client.chat.completions.create(model=MODEL, tools=TOOLS, messages=messages)
-        tool_calls = response.choices[0].message.tool_calls
-        if not tool_calls:
+        message = response.choices[0].message
+        if not message.tool_calls:
             break  # the model stopped without saving a result
-        for call in tool_calls:
+        requested: list[ChatCompletionMessageFunctionToolCallParam] = []
+        results: list[ChatCompletionToolMessageParam] = []
+        for call in message.tool_calls:
             if call.type != "function":
                 continue
-            args = json.loads(call.function.arguments)
-            if call.function.name == "save_cost_estimate":
+            name = call.function.name
+            args = json.loads(call.function.arguments or "{}")
+            requested.append(
+                {
+                    "id": call.id,
+                    "type": "function",
+                    "function": {"name": name, "arguments": call.function.arguments},
+                }
+            )
+            if name == "research_cost":
+                findings = _research_cost(issue_text, client)
+                sources |= _urls_in(findings)
+                results.append({"role": "tool", "tool_call_id": call.id, "content": findings})
+                continue
+            if name == "save_cost_estimate":
                 outcome = AgentOutcome(
                     status="done",
                     cost_best=Decimal(str(args["best"])),
                     cost_low=Decimal(str(args["low"])),
                     cost_high=Decimal(str(args["high"])),
+                    sources=sorted(sources),
                 )
-            elif call.function.name == "save_clarifying_question":
-                outcome = AgentOutcome(
-                    status="needs_info", clarifying_question=args["question"]
-                )
+            elif name == "save_clarifying_question":
+                outcome = AgentOutcome(status="needs_info", clarifying_question=args["question"])
             else:
+                results.append(
+                    {"role": "tool", "tool_call_id": call.id, "content": f"Unknown tool: {name}"}
+                )
                 continue
             save(issue_text, outcome)
             return outcome
+        messages.append(
+            {"role": "assistant", "content": message.content or "", "tool_calls": requested}
+        )
+        messages.extend(results)
     outcome = AgentOutcome(status="failed")
     save(issue_text, outcome)
     return outcome
+
+
+def _research_cost(issue_text: str, client: OpenAI) -> str:
+    """The research_cost tool: a web-search-backed sub-call returning raw findings
+    (not a committed estimate)."""
+    location = _property_location()
+    response = client.chat.completions.create(
+        model=MODEL,
+        max_tokens=RESEARCH_MAX_TOKENS,
+        extra_body={"plugins": WEB_PLUGIN},
+        messages=[
+            {
+                "role": "user",
+                "content": (
+                    "Research typical UK costs for this maintenance issue. Give concrete "
+                    "price points (parts, labour, call-out fees), note the region if the "
+                    "source is region-specific, and list the source URLs you used.\n\n"
+                    f"Issue: {issue_text}\n"
+                    f"Property location: {location}"
+                ),
+            }
+        ],
+    )
+    findings = (response.choices[0].message.content or "").strip()
+    return findings or "(research_cost returned no text findings)"
+
+
+def _urls_in(text: str) -> set[str]:
+    return {url.rstrip(".,;:") for url in URL_RE.findall(text)}
+
+
+def _property_location() -> str:
+    p = yaml.safe_load(PROPERTY_YAML.read_text())["property"]
+    return f"{p['name']}, {p['locality']}, {p['city']}, {p['country']}"

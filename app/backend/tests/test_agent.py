@@ -53,6 +53,25 @@ def test_the_agent_saves_the_cost_estimate_it_commits_to():
     )
 
 
+def test_the_sources_saved_with_an_estimate_are_the_urls_the_cost_research_found():
+    llm = llm_replying_with(
+        tool_call_reply("research_cost", {}),
+        text_reply(
+            "Replacement tap washers cost £5-£20 (https://example.com/a), plumbers charge "
+            "£60-£90 per hour: https://example.com/b, see also https://example.com/a."
+        ),
+        tool_call_reply("save_cost_estimate", {"best": 120, "low": 80, "high": 200}),
+    )
+    saved = []
+
+    outcome = agent.run_agent(
+        "The kitchen tap is dripping", llm, save=lambda text, o: saved.append((text, o))
+    )
+
+    assert outcome.sources == ["https://example.com/a", "https://example.com/b"]
+    assert saved == [("The kitchen tap is dripping", outcome)]
+
+
 def test_the_agent_saves_a_clarifying_question_when_the_issue_is_too_vague():
     llm = llm_replying_with(
         tool_call_reply("save_clarifying_question", {"question": "Which room is affected?"})

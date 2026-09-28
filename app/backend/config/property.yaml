@@ -1,0 +1,12 @@
+# Static property grounding, injected into the agent's system prompt on every run.
+# Copied from prototypes/property.yaml. No tenant/personal details.
+property:
+  name: Beech Range
+  locality: Levenshulme
+  city: Manchester
+  postcode: M19 3JX
+  country: United Kingdom
+  notes: >-
+    Ground-floor 2-bed flat. Freestanding gas cooker with a 4-burner hob
+    (Zanussi, installed ~2015). Gas meter in the hall cupboard. Rear access
+    via a shared yard.
