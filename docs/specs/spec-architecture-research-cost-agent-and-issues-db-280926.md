@@ -194,25 +194,45 @@ queries only in tests; keep existing tests green.
 ### 6.3 Infrastructure (Terraform only; manual apply)
 
 Chosen: private-IP Postgres on a free-tier `e2-micro` in `us-central1` (decision recorded in an
-ADR — see 13), Cloud Run reaching it over Direct VPC egress.
+ADR — see 13), Cloud Run reaching it over Direct VPC egress on a **dedicated custom VPC**, not
+the auto-created `default` network.
 
-1. `infra/services.tf`: add `compute.googleapis.com` (creates the auto-mode `default` VPC).
-2. New `infra/database.tf`:
-   - `google_compute_instance` `e2-micro`, `us-central1-*`, 30GB `pd-standard`, network tag
-     `postgres`, ephemeral external IP for package install only, startup script installing
-     Postgres, `listen_addresses='*'`, `pg_hba.conf` allowing only the Cloud Run subnet range with
+1. `infra/services.tf`: add `compute.googleapis.com`. Enabling it auto-creates a `default`
+   network with permissive rules (SSH/RDP open to the world). This slice does not use it —
+   nothing is attached, so those rules apply to nothing, and no import/destroy is needed. Known
+   residual: a future VM created without `--network` would land on it; deleting the `default`
+   network is an optional later step outside this slice.
+2. New `infra/network.tf`: custom-mode VPC with `routing_mode = "GLOBAL"` set explicitly, and two
+   subnets — europe-west1 (Cloud Run Direct VPC egress; a `/24` is ample) and us-central1 (the DB
+   VM). Non-overlapping ranges, chosen up front (ranges can only be expanded later). A custom VPC
+   has no default firewall rules; the only rules are those in step 3.
+3. New `infra/database.tf`:
+   - `google_compute_instance` `e2-micro`, `us-central1-*`, 30GB `pd-standard`, on the
+     us-central1 subnet, network tag `postgres`, ephemeral external IP for package install only
+     (outbound is allowed by default; no Cloud NAT), startup script installing Postgres,
+     `listen_addresses='*'`, `pg_hba.conf` allowing only the europe-west1 subnet range with
      password auth, DB + role created.
-   - Firewall: allow `tcp:5432` from the **europe-west1 default subnet range** (verify the range
-     after the API is enabled; auto-mode default is `10.132.0.0/20`) to tag `postgres`; allow
-     `tcp:22` only from the IAP range `35.235.240.0/20`. Delete/disable the default
-     `default-allow-ssh` and `default-allow-rdp` rules.
+   - Firewall (the only rules in the VPC): allow `tcp:5432` from the europe-west1 subnet range to
+     tag `postgres`; allow `tcp:22` only from the IAP range `35.235.240.0/20` (SSH via IAP
+     tunnelling; needs `roles/iap.tunnelUser`, which the project owner has).
    - Snapshot schedule (resource policy) on the disk.
    - Secret Manager secret `DATABASE_PASSWORD` (value set out-of-band, like the existing
-     secrets); grant `house-mgmt-agent-run` `secretAccessor`.
-3. `infra/cloud_run.tf`: add `vpc_access { network_interfaces { network="default"
-   subnetwork="default" } egress="PRIVATE_RANGES_ONLY" }`; env vars for DB host/name/user
-   (non-secret).
-4. Update `infra/README.md` with the apply steps and the one-time password setting.
+     secrets); grant `house-mgmt-agent-run` `secretAccessor`. **The repo is open source: the
+     production password must never appear in the repo, tfvars, Terraform state or VM
+     metadata.** The VM runs as its own dedicated service account with `secretAccessor` on this
+     one secret only, and its startup script fetches the password from Secret Manager at boot to
+     set the DB role's password. Only the throwaway local-dev credential in `docker-compose.yml`
+     is committed.
+   - Costs: VPC, subnets and firewall rules are free. Cross-region traffic (Cloud Run in Europe
+     to the VM in the US) incurs inter-region egress; expected pennies at single-user volume —
+     check the billing report after the first weeks. GCP charges for in-use external IPv4
+     addresses (~$3–4/month) and the free tier is believed not to cover it — [NEEDS INPUT:
+     confirm against current GCP pricing before treating the VM as $0/month].
+4. `infra/cloud_run.tf`: add `vpc_access { network_interfaces { network=<custom VPC>
+   subnetwork=<europe-west1 subnet> } egress="PRIVATE_RANGES_ONLY" }`; env vars for DB
+   host/name/user (non-secret). Note: destroying the Cloud Run service can leave its subnet slow
+   to release.
+5. Update `infra/README.md` with the apply steps and the one-time password setting.
 
 ## 7. Acceptance Criteria
 
@@ -267,7 +287,9 @@ issue and confirm the list persists across page reloads.
 - Runtime-collected sources: model-supplied URLs are more likely to be invented (REQ-005).
 - US free-tier VM over EU VM: data not sensitive, ~100ms/query acceptable against tens-of-seconds
   agent runs (user decision 28 Sep). Private IP + Direct VPC egress over a public IP: Postgres
-  never exposed to the internet; cost is one firewall rule and a `vpc_access` block.
+  never exposed to the internet. Dedicated custom VPC over the `default` network: no permissive
+  default rules to import and destroy, no apply ordering around auto-created resources, and
+  explicit GLOBAL routing (review feedback, 28 Sep).
 - Synchronous run: loop takes tens of seconds vs Cloud Run's request limit; async adds machinery
   with no single-user benefit.
 
