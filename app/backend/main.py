@@ -1,6 +1,8 @@
 import json
 import logging
 import sys
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import ClassVar
 
@@ -11,7 +13,7 @@ from slowapi.errors import RateLimitExceeded
 
 from routers.health import router as health_router
 from routers.issue import router as issue_router
-from services import iap_identity, langfuse_config
+from services import iap_identity, issues_db, langfuse_config
 from services.rate_limiter import handle_rate_limit_exceeded, limiter
 
 load_dotenv()
@@ -46,8 +48,14 @@ logger = logging.getLogger(__name__)
 DEFAULT_STATIC_DIR = Path(__file__).parent / "static"
 
 
+@asynccontextmanager
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    issues_db.init_schema()
+    yield
+
+
 def create_app(static_dir: Path = DEFAULT_STATIC_DIR) -> FastAPI:
-    app = FastAPI()
+    app = FastAPI(lifespan=lifespan)
     app.state.limiter = limiter
     # Starlette's add_exception_handler is typed for Callable[[Request, Exception], ...];
     # a handler narrowed to a specific exception subclass doesn't satisfy that

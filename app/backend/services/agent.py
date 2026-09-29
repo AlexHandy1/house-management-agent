@@ -93,11 +93,6 @@ SAVE_CLARIFYING_QUESTION_TOOL: ChatCompletionFunctionToolParam = {
 }
 TOOLS = [RESEARCH_COST_TOOL, SAVE_COST_ESTIMATE_TOOL, SAVE_CLARIFYING_QUESTION_TOOL]
 
-SYSTEM_PROMPT = (
-    "You are a helpful rental property maintenance agent. A landlord will describe "
-    "an issue reported at one of their properties. Help them think through it."
-)
-
 AGENT_SYSTEM_PROMPT_TEMPLATE = """\
 You are a lettings maintenance assistant. You are given a maintenance issue reported at a
 rental property. Your job is to work out what it will cost to fix, and record your result.
@@ -157,23 +152,6 @@ def _fetch_api_key_from_secret_manager() -> str:
     name = f"projects/{project_id}/secrets/{SECRET_ID}/versions/latest"
     response = client.access_secret_version(request={"name": name})
     return response.payload.data.decode("UTF-8")
-
-
-def respond_to_issue(issue_text: str, client: OpenAI) -> str:
-    langfuse = get_client()
-    with langfuse.start_as_current_observation(
-        as_type="generation", name="respond_to_issue", model=MODEL, input=issue_text
-    ) as generation:
-        completion = client.chat.completions.create(
-            model=MODEL,
-            messages=[
-                {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": issue_text},
-            ],
-        )
-        reply = completion.choices[0].message.content or ""
-        generation.update(output=reply)
-    return reply
 
 
 def run_agent(issue_text: str, client: OpenAI, save: Save) -> AgentOutcome:
