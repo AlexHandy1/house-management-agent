@@ -14,3 +14,4 @@ class AgentOutcome(BaseModel):
     cost_high: Decimal | None = None
     sources: list[str] = []
     clarifying_question: str | None = None
+    summary: str | None = None

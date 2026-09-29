@@ -18,6 +18,7 @@ def test_submitting_an_issue_returns_the_agents_outcome(monkeypatch):
         cost_low=Decimal(150),
         cost_high=Decimal(300),
         sources=["https://example.com/a"],
+        summary="Full breakdown of typical costs for a dripping tap...",
     )
     monkeypatch.setattr(
         issue_router, "run_agent", lambda issue_text, client, save: outcome
@@ -33,6 +34,7 @@ def test_submitting_an_issue_returns_the_agents_outcome(monkeypatch):
         "cost_high": "300",
         "sources": ["https://example.com/a"],
         "clarifying_question": None,
+        "summary": "Full breakdown of typical costs for a dripping tap...",
     }
 
 

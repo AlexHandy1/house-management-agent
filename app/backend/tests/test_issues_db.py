@@ -11,6 +11,7 @@ def test_a_saved_cost_estimate_can_be_listed_back_with_its_sources(database_url)
         cost_low=Decimal(150),
         cost_high=Decimal(300),
         sources=["https://example.com/a", "https://example.com/b"],
+        summary="Full breakdown of typical costs for a dripping tap...",
     )
 
     issues_db.save("The kitchen tap is dripping", outcome)
@@ -24,6 +25,7 @@ def test_a_saved_cost_estimate_can_be_listed_back_with_its_sources(database_url)
         Decimal(300),
     )
     assert issue["supporting_web_sources"] == ["https://example.com/a", "https://example.com/b"]
+    assert issue["agent_summary"] == "Full breakdown of typical costs for a dripping tap..."
 
 
 def test_a_clarifying_question_and_a_failed_run_are_stored_without_cost_estimates(database_url):

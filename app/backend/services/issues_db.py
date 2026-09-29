@@ -17,6 +17,7 @@ CREATE TABLE IF NOT EXISTS issues (
   cost_high              numeric,
   supporting_web_sources jsonb       NOT NULL DEFAULT '[]',
   clarifying_question    text,
+  agent_summary          text,
   created_at             timestamptz NOT NULL DEFAULT now(),
   updated_at             timestamptz NOT NULL DEFAULT now()
 )
@@ -37,8 +38,8 @@ def save(source_text: str, outcome: AgentOutcome) -> dict[str, Any]:
         row = conn.execute(
             """
             INSERT INTO issues (source_text, status, cost_best, cost_low, cost_high,
-                                supporting_web_sources, clarifying_question)
-            VALUES (%s, %s, %s, %s, %s, %s, %s)
+                                supporting_web_sources, clarifying_question, agent_summary)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
             RETURNING *
             """,
             (
@@ -49,6 +50,7 @@ def save(source_text: str, outcome: AgentOutcome) -> dict[str, Any]:
                 outcome.cost_high,
                 Jsonb(outcome.sources),
                 outcome.clarifying_question,
+                outcome.summary,
             ),
         ).fetchone()
     assert row is not None

@@ -174,6 +174,7 @@ def _run_loop(issue_text: str, client: OpenAI, save: Save) -> AgentOutcome:
         {"role": "user", "content": f"Maintenance issue reported:\n\n{issue_text}"},
     ]
     sources: set[str] = set()
+    findings_text: str | None = None
     for _ in range(MAX_ROUNDS):
         try:
             response = _create_with_retry(client, model=MODEL, tools=TOOLS, messages=messages)
@@ -200,6 +201,7 @@ def _run_loop(issue_text: str, client: OpenAI, save: Save) -> AgentOutcome:
             )
             if name == "research_cost":
                 findings = _research_cost(issue_text, client)
+                findings_text = findings
                 sources |= _urls_in(findings)
                 results.append({"role": "tool", "tool_call_id": call.id, "content": findings})
                 continue
@@ -210,6 +212,7 @@ def _run_loop(issue_text: str, client: OpenAI, save: Save) -> AgentOutcome:
                     cost_low=Decimal(str(args["low"])),
                     cost_high=Decimal(str(args["high"])),
                     sources=sorted(sources),
+                    summary=findings_text,
                 )
             elif name == "save_clarifying_question":
                 outcome = AgentOutcome(status="needs_info", clarifying_question=args["question"])

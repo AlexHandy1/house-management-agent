@@ -14,13 +14,13 @@ def no_langfuse(monkeypatch):
     monkeypatch.setattr(agent, "get_client", lambda: MagicMock())
 
 
-def tool_call_reply(name, arguments):
+def tool_call_reply(name, arguments, content=None):
     call = SimpleNamespace(
         id="call_1",
         type="function",
         function=SimpleNamespace(name=name, arguments=json.dumps(arguments)),
     )
-    message = SimpleNamespace(content=None, tool_calls=[call])
+    message = SimpleNamespace(content=content, tool_calls=[call])
     return SimpleNamespace(choices=[SimpleNamespace(message=message, finish_reason="tool_calls")])
 
 
@@ -75,6 +75,27 @@ def test_the_sources_saved_with_an_estimate_are_the_urls_the_cost_research_found
 
     assert outcome.sources == ["https://example.com/a", "https://example.com/b"]
     assert saved == [("The kitchen tap is dripping", outcome)]
+
+
+def test_the_research_findings_are_saved_as_the_outcomes_full_summary():
+    llm = llm_replying_with(
+        tool_call_reply("research_cost", {}),
+        text_reply(
+            "Replacement tap washers cost £5-£20, plumbers charge £60-£90 per hour: "
+            "https://example.com/a."
+        ),
+        tool_call_reply("save_cost_estimate", {"best": 120, "low": 80, "high": 200}),
+    )
+    saved = []
+
+    outcome = agent.run_agent(
+        "The kitchen tap is dripping", llm, save=lambda text, o: saved.append((text, o))
+    )
+
+    assert outcome.summary == (
+        "Replacement tap washers cost £5-£20, plumbers charge £60-£90 per hour: "
+        "https://example.com/a."
+    )
 
 
 def test_the_agent_saves_a_clarifying_question_when_the_issue_is_too_vague():
