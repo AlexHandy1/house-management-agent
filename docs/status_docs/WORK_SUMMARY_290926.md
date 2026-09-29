@@ -163,14 +163,37 @@ None currently blocking. Open items below are next steps, not blockers.
    agent code to the already-DB-wired Cloud Run service. Test the live app through the Cloud Run
    URL (behind IAP sign-in) — submit a real issue, confirm it researches, saves, and shows in
    the table against the production DB VM.
-3. **Document the DB VM bootstrap dance** in `infra/README.md` (deliberately not written up
-   during this session, per user instruction, until proven working — it now has been, twice:
-   initial bootstrap + the startup-script bugfix re-bootstrap).
+3. ~~Document the DB VM bootstrap dance in `infra/README.md`~~ — done this session, once proven
+   working twice (initial bootstrap + the startup-script bugfix re-bootstrap).
 4. **Revisit the eval/DB boundary** (evals use a capturing `save`, not `issues_db.save`) — still
    open from 28 Sep, explicitly deferred again this session ("stick with the current boundary...
    revisit once we have the full, implemented picture").
-5. Name Langfuse generations (`research_cost` vs. loop turns) for readability — low priority,
+5. Review SQL startup fix (see `/security-reviewer` output).
+6. **Review logging** to confirm it reflects this session's changes (new agent tool calls, DB
+   operations, the issues API) — not otherwise checked this session beyond confirming issue text
+   itself is never logged (CON-004).
+7. Name Langfuse generations (`research_cost` vs. loop turns) for readability — low priority,
    carried from 28 Sep.
-6. Consider `roles/logging.logWriter` for the DB VM's service account — its guest agent currently
+8. Consider `roles/logging.logWriter` for the DB VM's service account — its guest agent currently
    logs permission-denied noise to serial console (harmless, but clutters startup-script
    debugging).
+
+## Known scalability questions/concerns
+
+Not blockers, but worth deliberately revisiting before this grows much further:
+
+- **Agent tool-call handling is a fixed conditional chain, not a registry.** `_run_loop`
+  (`services/agent.py`) dispatches `research_cost`/`save_cost_estimate`/`save_clarifying_question`
+  via a hardcoded `if name == ... elif name == ...` chain, and the two `save_*` branches each
+  build a specific `AgentOutcome` shape and immediately end the loop. Adding a fourth tool (e.g.
+  `find_contractors`, already in the PRD's future scope) means editing this chain directly,
+  not registering a new handler — there's no abstraction separating "what tools exist" from
+  "how the loop dispatches them." Fine at 2 write-tools; worth a rethink before it's 4+.
+- **`issues_db` presumes one issue, one table, one purpose** — the module (and its schema) is
+  built around a single `issues` table being the entire database's reason to exist, not one
+  table among several in a shared application database. If a future slice adds
+  tenants/contractors/leases/etc. as their own tables in the same Postgres instance, the current
+  shape (one module = one table = all the schema/query logic) won't naturally extend — worth
+  deciding now whether future tables get their own `services/<name>_db.py` modules following
+  this same pattern, or whether this gets restructured around a shared connection/session
+  layer with per-table modules underneath it, before the second table shows up.
