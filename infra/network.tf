@@ -33,4 +33,11 @@ resource "google_compute_subnetwork" "db" {
   network       = google_compute_network.vpc.id
   region        = "us-central1"
   ip_cidr_range = "10.20.0.0/24"
+
+  # Free, and unrelated to the VM's own external IP: routes calls to Google
+  # APIs (Secret Manager, in this case) over Google's private backbone, no
+  # public IP needed. This is what lets the DB VM's every-boot password
+  # refresh keep working after the bootstrap-only external IP is removed
+  # (see infra/database.tf, var.db_vm_bootstrap_internet_access).
+  private_ip_google_access = true
 }

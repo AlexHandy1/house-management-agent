@@ -75,11 +75,20 @@ resource "google_compute_instance" "db" {
 
   network_interface {
     subnetwork = google_compute_subnetwork.db.id
-    # Ephemeral public IP for `apt-get install` only — this project sets no
-    # Cloud NAT and relies on outbound-by-default egress. The VM is only
-    # ever *reached* over the private IP (see the firewall rules above);
-    # nothing depends on this address once package install has run.
-    access_config {}
+
+    # Ephemeral public IP, present only while bootstrapping (see
+    # var.db_vm_bootstrap_internet_access) — needed once, for `apt-get
+    # install`, since Debian's package mirrors aren't Google APIs and so
+    # aren't reachable via the db subnet's Private Google Access. Every
+    # external IPv4 costs money while attached (see the variable's
+    # description), so this project doesn't keep one permanently: the VM
+    # is only ever *reached* over its private IP (see the firewall rules
+    # above) and its ongoing password refresh goes over Private Google
+    # Access, not this address.
+    dynamic "access_config" {
+      for_each = var.db_vm_bootstrap_internet_access ? [1] : []
+      content {}
+    }
   }
 
   service_account {
@@ -92,11 +101,14 @@ resource "google_compute_instance" "db" {
     set -euo pipefail
 
     PROVISIONED_MARKER=/var/lib/house-mgmt-db-provisioned
-    PG_CONF_DIR=$(find /etc/postgresql -mindepth 1 -maxdepth 1 -type d | head -n1)/main
 
     if [ ! -f "$PROVISIONED_MARKER" ]; then
       apt-get update
       apt-get install -y postgresql
+
+      # Only resolvable once postgresql is actually installed — this must
+      # stay inside the guarded block, after the install line above.
+      PG_CONF_DIR=$(find /etc/postgresql -mindepth 1 -maxdepth 1 -type d | head -n1)/main
 
       sed -i "s/^#listen_addresses.*/listen_addresses = '*'/" "$PG_CONF_DIR/postgresql.conf"
       echo "host ${local.db_name} ${local.db_user} ${google_compute_subnetwork.run.ip_cidr_range} scram-sha-256" \
