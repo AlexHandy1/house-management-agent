@@ -56,7 +56,9 @@ jobs:
         working-directory: app/backend
     services:
       postgres:
-        image: postgres:16
+        # Pinned to match docker-compose.yml and the production VM's
+        # distro-default apt package (Debian 12 ships Postgres 15).
+        image: postgres:15
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres

@@ -1,7 +1,7 @@
 variable "backend_secret_names" {
   description = "Names of runtime secrets Cloud Run reads from Secret Manager at startup. Add a name here when a real secret exists; its value is set out-of-band, never in Terraform config."
   type        = list(string)
-  default     = ["OPENROUTER_API_KEY", "LANGFUSE_PUBLIC_KEY", "LANGFUSE_SECRET_KEY"]
+  default     = ["OPENROUTER_API_KEY", "LANGFUSE_PUBLIC_KEY", "LANGFUSE_SECRET_KEY", "DATABASE_PASSWORD"]
 }
 
 resource "google_secret_manager_secret" "backend" {

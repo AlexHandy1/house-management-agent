@@ -67,14 +67,29 @@ a public repo) — supply it at apply time as above, or via a local
 
 ## Setting secret values
 
-Terraform creates the Secret Manager *containers* (`openrouter-api-key`,
-`langfuse-public-key`, `langfuse-secret-key`) but never their values. Set
+Terraform creates the Secret Manager *containers* (`OPENROUTER_API_KEY`,
+`LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY`, `DATABASE_PASSWORD` — see
+`secret_manager.tf`'s `backend_secret_names`) but never their values. Set
 each one out-of-band, once:
 
 ```bash
-echo -n "sk-..." | gcloud secrets versions add openrouter-api-key \
+echo -n "sk-..." | gcloud secrets versions add OPENROUTER_API_KEY \
   --project=house-management-agent --data-file=-
 ```
+
+For `DATABASE_PASSWORD`, generate a random value rather than picking one —
+both the DB VM's startup script and Cloud Run itself read this same secret
+(see `infra/database.tf`, `infra/cloud_run.tf`):
+
+```bash
+openssl rand -base64 24 | tr -d '\n' | gcloud secrets versions add DATABASE_PASSWORD \
+  --project=house-management-agent --data-file=-
+```
+
+The VM only picks this up on its *next* boot (its startup script re-runs
+`ALTER ROLE ... PASSWORD` every boot, not continuously) — after setting or
+rotating it, reset the VM: `gcloud compute instances reset house-mgmt-db
+--project=house-management-agent --zone=us-central1-a`.
 
 ## Manual deploy (CI/CD unavailable)
 

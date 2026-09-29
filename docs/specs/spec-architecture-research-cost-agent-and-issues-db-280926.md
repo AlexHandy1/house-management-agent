@@ -254,7 +254,9 @@ the auto-created `default` network.
    - Firewall (the only rules in the VPC): allow `tcp:5432` from the europe-west1 subnet range to
      tag `postgres`; allow `tcp:22` only from the IAP range `35.235.240.0/20` (SSH via IAP
      tunnelling; needs `roles/iap.tunnelUser`, which the project owner has).
-   - Snapshot schedule (resource policy) on the disk.
+   - Snapshot schedule (resource policy) on the disk. **DEFERRED, 29 Sep**: not built —
+     no backups needed for this slice, and a snapshot schedule carries an ongoing storage
+     cost. Add later if the data becomes worth protecting.
    - Secret Manager secret `DATABASE_PASSWORD` (value set out-of-band, like the existing
      secrets); grant `house-mgmt-agent-run` `secretAccessor`. **The repo is open source: the
      production password must never appear in the repo, tfvars, Terraform state or VM

@@ -41,6 +41,19 @@ resource "google_cloud_run_v2_service" "app" {
       max_instance_count = 2
     }
 
+    # Direct VPC egress: attaches this service to the Cloud Run subnet
+    # (network.tf) so it can reach the issues-DB VM's private IP.
+    # PRIVATE_RANGES_ONLY sends only RFC1918-bound traffic through the VPC —
+    # calls to OpenRouter/Langfuse/Secret Manager still go out normally,
+    # not through this path.
+    vpc_access {
+      network_interfaces {
+        network    = google_compute_network.vpc.id
+        subnetwork = google_compute_subnetwork.run.id
+      }
+      egress = "PRIVATE_RANGES_ONLY"
+    }
+
     containers {
       # Placeholder image - CI/CD's deploy step replaces this with the
       # real built image on every deploy (see lifecycle block below).
@@ -49,6 +62,23 @@ resource "google_cloud_run_v2_service" "app" {
       env {
         name  = "LANGFUSE_BASE_URL"
         value = "https://cloud.langfuse.com"
+      }
+
+      # Non-secret connection details for issues_db.get_database_url() —
+      # mirrors resolve_api_key()'s K_SERVICE switch: builds the DSN from
+      # these plus the DATABASE_PASSWORD secret (secret_manager.tf) when
+      # running on Cloud Run, or reads DATABASE_URL directly otherwise.
+      env {
+        name  = "DB_HOST"
+        value = google_compute_instance.db.network_interface[0].network_ip
+      }
+      env {
+        name  = "DB_NAME"
+        value = local.db_name
+      }
+      env {
+        name  = "DB_USER"
+        value = local.db_user
       }
 
       # Lets the app verify the X-Goog-IAP-JWT-Assertion header's signature
@@ -87,9 +117,9 @@ resource "google_cloud_run_v2_service_iam_member" "iap_invoker" {
 resource "google_iap_web_cloud_run_service_iam_member" "owner" {
   provider = google-beta
 
-  project                 = var.project_id
-  location                = var.region
-  cloud_run_service_name  = google_cloud_run_v2_service.app.name
-  role                    = "roles/iap.httpsResourceAccessor"
-  member                  = "user:${var.owner_email}"
+  project                = var.project_id
+  location               = var.region
+  cloud_run_service_name = google_cloud_run_v2_service.app.name
+  role                   = "roles/iap.httpsResourceAccessor"
+  member                 = "user:${var.owner_email}"
 }
