@@ -29,6 +29,10 @@ def text_reply(content):
     return SimpleNamespace(choices=[SimpleNamespace(message=message, finish_reason="stop")])
 
 
+def empty_choices_reply():
+    return SimpleNamespace(choices=[], model_dump=lambda: {"choices": []})
+
+
 def llm_replying_with(*replies):
     llm = MagicMock()
     llm.chat.completions.create.side_effect = list(replies)
@@ -99,6 +103,33 @@ def test_a_failed_outcome_is_saved_when_the_agent_stops_without_saving_a_result(
 
     assert saved == [("The tap drips", outcome)]
     assert outcome.status == "failed"
+
+
+def test_the_agent_recovers_from_a_single_transient_empty_choices_response():
+    llm = llm_replying_with(
+        empty_choices_reply(),
+        tool_call_reply("save_cost_estimate", {"best": 225, "low": 150, "high": 300}),
+    )
+    saved = []
+
+    outcome = agent.run_agent(
+        "The kitchen tap is dripping", llm, save=lambda text, o: saved.append((text, o))
+    )
+
+    assert outcome.status == "done"
+    assert saved == [("The kitchen tap is dripping", outcome)]
+
+
+def test_a_failed_outcome_is_saved_when_choices_stay_empty_after_a_retry():
+    llm = llm_replying_with(empty_choices_reply(), empty_choices_reply())
+    saved = []
+
+    outcome = agent.run_agent(
+        "The kitchen tap is dripping", llm, save=lambda text, o: saved.append((text, o))
+    )
+
+    assert outcome.status == "failed"
+    assert saved == [("The kitchen tap is dripping", outcome)]
 
 
 def test_a_failed_outcome_is_saved_when_the_model_provider_call_errors():

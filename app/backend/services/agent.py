@@ -37,6 +37,11 @@ URL_RE = re.compile(r"https?://[^\s<>\"')\]]+")
 # production passes issues_db.save, evals pass a capturing function.
 Save = Callable[[str, AgentOutcome], Any]
 
+
+class ModelCallFailed(Exception):
+    """Raised when the provider returns no choices twice in a row (seen 18 Sep in the
+    prototype: a transient response with choices=None, no exception raised)."""
+
 RESEARCH_COST_TOOL: ChatCompletionFunctionToolParam = {
     "type": "function",
     "function": {
@@ -193,8 +198,8 @@ def _run_loop(issue_text: str, client: OpenAI, save: Save) -> AgentOutcome:
     sources: set[str] = set()
     for _ in range(MAX_ROUNDS):
         try:
-            response = client.chat.completions.create(model=MODEL, tools=TOOLS, messages=messages)
-        except OpenAIError:
+            response = _create_with_retry(client, model=MODEL, tools=TOOLS, messages=messages)
+        except (OpenAIError, ModelCallFailed):
             outcome = AgentOutcome(status="failed")
             save(issue_text, outcome)
             return outcome
@@ -244,6 +249,18 @@ def _run_loop(issue_text: str, client: OpenAI, save: Save) -> AgentOutcome:
     outcome = AgentOutcome(status="failed")
     save(issue_text, outcome)
     return outcome
+
+
+def _create_with_retry(client: OpenAI, **kwargs: Any) -> Any:
+    """chat.completions.create, retried once if `choices` comes back empty — a
+    transient provider response, not an exception (see ModelCallFailed)."""
+    response = client.chat.completions.create(**kwargs)
+    if response.choices:
+        return response
+    response = client.chat.completions.create(**kwargs)
+    if response.choices:
+        return response
+    raise ModelCallFailed(f"No choices after 2 attempts. Last raw response: {response.model_dump()}")
 
 
 def _research_cost(issue_text: str, client: OpenAI) -> str:
