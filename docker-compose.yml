@@ -1,0 +1,20 @@
+# Local development/test Postgres ONLY. The credentials below are a throwaway local
+# dev value, not the production password (production's lives in Secret Manager and is
+# never committed — see docs/specs/spec-architecture-research-cost-agent-and-issues-db-280926.md).
+# Pinned to 15 to match the production VM's distro-default apt package
+# (Debian 12 ships Postgres 15) — deliberately not the latest available image,
+# so local/CI/prod all run the same major version (see infra/database.tf).
+services:
+  postgres:
+    image: postgres:15
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: house_mgmt
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+volumes:
+  pgdata:

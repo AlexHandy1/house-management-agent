@@ -54,6 +54,22 @@ jobs:
     defaults:
       run:
         working-directory: app/backend
+    services:
+      postgres:
+        # Pinned to match docker-compose.yml and the production VM's
+        # distro-default apt package (Debian 12 ships Postgres 15).
+        image: postgres:15
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: house_mgmt
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5

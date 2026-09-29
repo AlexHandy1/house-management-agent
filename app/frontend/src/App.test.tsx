@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { vi } from 'vitest'
 import App from './App'
@@ -11,12 +11,28 @@ test('renders the House Management Agent heading', () => {
   ).toBeInTheDocument()
 })
 
-test('lets the landlord describe an issue and see the agent response', async () => {
-  const fetchMock = vi.fn().mockResolvedValue({
-    ok: true,
-    json: async () => ({ response: 'Contact a plumber to inspect the leak.' }),
+function stubFetch({
+  issues = [],
+  onSubmit,
+}: {
+  issues?: unknown[]
+  onSubmit: () => Promise<unknown>
+}) {
+  const fetchMock = vi.fn((_url: string, options?: RequestInit) => {
+    if (options?.method === 'POST') {
+      return onSubmit()
+    }
+    return Promise.resolve({ ok: true, json: async () => issues })
   })
   vi.stubGlobal('fetch', fetchMock)
+  return fetchMock
+}
+
+test('shows a thinking state while the agent researches costs, then a sourced cost estimate', async () => {
+  let resolvePost!: (value: unknown) => void
+  stubFetch({
+    onSubmit: () => new Promise((resolve) => { resolvePost = resolve }),
+  })
   const user = userEvent.setup()
   render(<App />)
 
@@ -26,16 +42,151 @@ test('lets the landlord describe an issue and see the agent response', async () 
   )
   await user.click(screen.getByRole('button', { name: /submit/i }))
 
-  expect(fetchMock).toHaveBeenCalledWith(
-    '/api/issue',
-    expect.objectContaining({
-      method: 'POST',
-      body: JSON.stringify({ issue_text: 'The boiler is leaking' }),
+  expect(screen.getByRole('button', { name: /researching costs/i })).toBeDisabled()
+
+  resolvePost({
+    ok: true,
+    json: async () => ({
+      status: 'done',
+      cost_best: '95',
+      cost_low: '70',
+      cost_high: '150',
+      sources: ['https://example.com/a', 'https://example.com/b'],
+      clarifying_question: null,
+      summary: 'A dripping tap is usually a worn washer, a quick and inexpensive fix.',
+    }),
+  })
+
+  expect(await screen.findByText(/£95/)).toBeInTheDocument()
+  expect(screen.getByText(/£70/)).toBeInTheDocument()
+  expect(screen.getByText(/£150/)).toBeInTheDocument()
+  expect(screen.getByText(/2 sources/i)).toBeInTheDocument()
+  expect(screen.getByText(/a worn washer/i)).toBeInTheDocument()
+})
+
+test('shows the clarifying question when the issue is too vague to cost', async () => {
+  stubFetch({
+    onSubmit: () =>
+      Promise.resolve({
+        ok: true,
+        json: async () => ({
+          status: 'needs_info',
+          cost_best: null,
+          cost_low: null,
+          cost_high: null,
+          sources: [],
+          clarifying_question: 'Which room is affected?',
+        }),
+      }),
+  })
+  const user = userEvent.setup()
+  render(<App />)
+
+  await user.type(screen.getByLabelText(/describe the issue/i), 'Something is broken')
+  await user.click(screen.getByRole('button', { name: /submit/i }))
+
+  expect(await screen.findByText(/which room is affected/i)).toBeInTheDocument()
+})
+
+test('shows an error state when the agent run fails', async () => {
+  stubFetch({
+    onSubmit: () =>
+      Promise.resolve({
+        ok: true,
+        json: async () => ({
+          status: 'failed',
+          cost_best: null,
+          cost_low: null,
+          cost_high: null,
+          sources: [],
+          clarifying_question: null,
+        }),
+      }),
+  })
+  const user = userEvent.setup()
+  render(<App />)
+
+  await user.type(screen.getByLabelText(/describe the issue/i), 'The tap drips')
+  await user.click(screen.getByRole('button', { name: /submit/i }))
+
+  expect(await screen.findByText(/something went wrong/i)).toBeInTheDocument()
+})
+
+test('shows an error state when the request to submit the issue fails outright', async () => {
+  stubFetch({ onSubmit: () => Promise.reject(new Error('network down')) })
+  const user = userEvent.setup()
+  render(<App />)
+
+  await user.type(screen.getByLabelText(/describe the issue/i), 'The tap drips')
+  await user.click(screen.getByRole('button', { name: /submit/i }))
+
+  expect(await screen.findByText(/something went wrong/i)).toBeInTheDocument()
+})
+
+test('loads previously saved issues on mount without submitting anything', async () => {
+  stubFetch({
+    issues: [
+      {
+        id: 1,
+        source_text: 'The kitchen tap is dripping',
+        status: 'done',
+        cost_best: '95',
+        cost_low: '70',
+        cost_high: '150',
+        supporting_web_sources: ['https://example.com/a'],
+        clarifying_question: null,
+        created_at: '2026-09-28T10:00:00Z',
+      },
+    ],
+    onSubmit: () => Promise.reject(new Error('should not be called')),
+  })
+
+  render(<App />)
+
+  expect(await screen.findByText(/the kitchen tap is dripping/i)).toBeInTheDocument()
+})
+
+test('refreshes the issues table with the newly saved issue after a submit', async () => {
+  const savedIssue = {
+    id: 1,
+    source_text: 'The boiler is leaking',
+    status: 'done',
+    cost_best: '95',
+    cost_low: '70',
+    cost_high: '150',
+    supporting_web_sources: [],
+    clarifying_question: null,
+    created_at: '2026-09-29T10:00:00Z',
+  }
+  const fetchMock = vi
+    .fn()
+    // GET on mount: table starts empty
+    .mockResolvedValueOnce({ ok: true, json: async () => [] })
+    // POST on submit
+    .mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        status: 'done',
+        cost_best: '95',
+        cost_low: '70',
+        cost_high: '150',
+        sources: [],
+        clarifying_question: null,
+      }),
     })
-  )
-  expect(
-    await screen.findByText('Contact a plumber to inspect the leak.')
-  ).toBeInTheDocument()
+    // GET refetch after submit: the agent's write is now visible
+    .mockResolvedValueOnce({ ok: true, json: async () => [savedIssue] })
+  vi.stubGlobal('fetch', fetchMock)
+  const user = userEvent.setup()
+  render(<App />)
+
+  expect(screen.queryByRole('table')).not.toBeInTheDocument()
+
+  await user.type(screen.getByLabelText(/describe the issue/i), 'The boiler is leaking')
+  await user.click(screen.getByRole('button', { name: /submit/i }))
+
+  const table = await screen.findByRole('table')
+  expect(within(table).getByText(/the boiler is leaking/i)).toBeInTheDocument()
 })
 
 test('limits the issue description to 2000 characters', () => {

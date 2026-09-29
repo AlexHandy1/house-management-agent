@@ -3,7 +3,9 @@ google-cloud-secret-manager==2.24.0
 httpx==0.28.1
 langfuse==4.15.4
 openai==2.53.0
+psycopg[binary]==3.2.13
 pytest==9.1.1
 python-dotenv==1.2.2
+pyyaml==6.0.3
 slowapi==0.1.10
 uvicorn==0.52.1
