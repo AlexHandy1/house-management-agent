@@ -119,9 +119,11 @@ approvals, drafts) is added.
   has no failure tool. Exactly one `save` call happens per run.
 - **REQ-005**: `supporting_web_sources` is populated by the runtime from URLs in `research_cost`
   results, never from model-supplied arguments.
-- **REQ-006**: `save_cost_estimate` arguments are validated (best/low/high numeric, `0 ≤ low ≤ best
-  ≤ high`); invalid arguments are returned to the model as a tool error so it can retry within
-  the round budget. The same validator is used by the evals.
+- **REQ-006 (DEFERRED, 29 Sep)**: `save_cost_estimate` arguments are validated (best/low/high
+  numeric, `0 ≤ low ≤ best ≤ high`); invalid arguments are returned to the model as a tool error
+  so it can retry within the round budget. The same validator is used by the evals. **Not built**:
+  an inverted range has never been observed in prototyping or evals, and the retry-loop complexity
+  isn't justified without a real case. Revisit if it shows up in practice.
 - **REQ-007**: `GET /api/issues` returns all issues, newest first.
 - **REQ-008**: Frontend shows a thinking state while the request is open, a success state on
   `done`, an information-needed state on `needs_info`, an error state on `failed`/network error,
