@@ -4,6 +4,7 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
+from openai import APIConnectionError
 
 from services import agent
 
@@ -90,6 +91,19 @@ def test_the_agent_saves_a_clarifying_question_when_the_issue_is_too_vague():
 
 def test_a_failed_outcome_is_saved_when_the_agent_stops_without_saving_a_result():
     llm = llm_replying_with(text_reply("It's probably a washer."))
+    saved = []
+
+    outcome = agent.run_agent(
+        "The tap drips", llm, save=lambda text, o: saved.append((text, o))
+    )
+
+    assert saved == [("The tap drips", outcome)]
+    assert outcome.status == "failed"
+
+
+def test_a_failed_outcome_is_saved_when_the_model_provider_call_errors():
+    llm = MagicMock()
+    llm.chat.completions.create.side_effect = APIConnectionError(request=MagicMock())
     saved = []
 
     outcome = agent.run_agent(

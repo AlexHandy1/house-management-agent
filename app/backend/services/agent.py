@@ -11,7 +11,7 @@ import yaml
 from google.cloud import secretmanager
 from langfuse import get_client
 from langfuse.openai import OpenAI as TracedOpenAI
-from openai import OpenAI
+from openai import OpenAI, OpenAIError
 from openai.types.chat import (
     ChatCompletionFunctionToolParam,
     ChatCompletionMessageFunctionToolCallParam,
@@ -192,7 +192,12 @@ def _run_loop(issue_text: str, client: OpenAI, save: Save) -> AgentOutcome:
     ]
     sources: set[str] = set()
     for _ in range(MAX_ROUNDS):
-        response = client.chat.completions.create(model=MODEL, tools=TOOLS, messages=messages)
+        try:
+            response = client.chat.completions.create(model=MODEL, tools=TOOLS, messages=messages)
+        except OpenAIError:
+            outcome = AgentOutcome(status="failed")
+            save(issue_text, outcome)
+            return outcome
         message = response.choices[0].message
         if not message.tool_calls:
             break  # the model stopped without saving a result
