@@ -11,6 +11,13 @@ from models.agent_outcome import AgentOutcome
 
 DATABASE_PASSWORD_SECRET_ID = "DATABASE_PASSWORD"
 
+# CREATE TABLE IF NOT EXISTS only ever creates — it never alters an
+# existing table, so changing a column here does nothing on a database
+# that's already been initialized (a fresh environment gets the new
+# column; an existing one silently doesn't, and later inserts fail).
+# Fine while nothing holds real data; once production has real rows,
+# switch to numbered SQL migration files + a schema_migrations tracking
+# table instead of continuing to edit this string in place.
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS issues (
   id                     bigserial PRIMARY KEY,
