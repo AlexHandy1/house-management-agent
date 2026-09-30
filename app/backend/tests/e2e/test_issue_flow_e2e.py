@@ -65,6 +65,13 @@ def test_submitting_an_issue_through_the_browser_saves_it_and_shows_it_in_the_ta
             f"expected a substantial research summary, got: {summary_text!r}"
         )
 
+        # plumbing_001 reliably produces contractors too (live evals) — confirms the
+        # find_contractors/save_contractors wiring end-to-end, not just cost estimation.
+        contractors_text = run_agent_browser("get", "text", ".agent-contractors")
+        assert len(contractors_text.strip()) > 0, (
+            f"expected at least one contractor shown, got: {contractors_text!r}"
+        )
+
         # The issues table only appears after the post-submit refetch, which
         # happens slightly after the outcome text renders.
         run_agent_browser("wait", "table", "--timeout", "10000")
