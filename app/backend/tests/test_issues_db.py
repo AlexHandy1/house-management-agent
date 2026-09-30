@@ -1,7 +1,10 @@
+import os
 from decimal import Decimal
 from unittest.mock import MagicMock
 
-from models.agent_outcome import AgentOutcome
+import psycopg
+
+from models.agent_outcome import AgentOutcome, ContractorResult
 from services import issues_db
 
 
@@ -69,6 +72,63 @@ def test_a_clarifying_question_and_a_failed_run_are_stored_without_cost_estimate
     assert needs_info["clarifying_question"] == "Which room is affected?"
     assert needs_info["cost_best"] is None
     assert needs_info["supporting_web_sources"] == []
+
+
+def test_an_issue_saved_with_contractors_is_listed_as_having_a_contractor(database_url):
+    outcome = AgentOutcome(
+        status="done",
+        contractors=[
+            ContractorResult(
+                name="Test Plumbing Co",
+                trade="plumbing/heating",
+                source_url="https://example.com/test-plumbing-co",
+                phone_number="0000 000 0001",
+            ),
+            ContractorResult(
+                name="Sample Heating Ltd",
+                trade="plumbing/heating",
+                source_url="https://example.com/sample-heating-ltd",
+                email="contact@example.com",
+            ),
+        ],
+    )
+
+    issues_db.save("The boiler is leaking", outcome)
+
+    [issue] = issues_db.list_issues()
+    assert issue["has_contractor"] is True
+
+
+def test_an_issue_saved_without_contractors_is_not_listed_as_having_a_contractor(database_url):
+    issues_db.save("The kitchen tap is dripping", AgentOutcome(status="done"))
+
+    [issue] = issues_db.list_issues()
+    assert issue["has_contractor"] is False
+
+
+def test_the_same_contractor_can_be_linked_to_more_than_one_issue_without_duplicating_it(
+    database_url,
+):
+    test_contractor = ContractorResult(
+        name="Test Plumbing Co",
+        trade="plumbing/heating",
+        source_url="https://example.com/test-plumbing-co",
+        phone_number="0000 000 0001",
+    )
+
+    issues_db.save(
+        "The boiler is leaking", AgentOutcome(status="done", contractors=[test_contractor])
+    )
+    issues_db.save("No hot water", AgentOutcome(status="done", contractors=[test_contractor]))
+
+    with psycopg.connect(os.environ["DATABASE_URL"]) as conn:
+        [(count,)] = conn.execute(
+            "SELECT COUNT(*) FROM contractors WHERE name = %s", (test_contractor.name,)
+        ).fetchall()
+    assert count == 1
+    boiler_issue, hot_water_issue = sorted(issues_db.list_issues(), key=lambda i: i["id"])
+    assert boiler_issue["has_contractor"] is True
+    assert hot_water_issue["has_contractor"] is True
 
 
 def test_issues_are_listed_newest_first(database_url):

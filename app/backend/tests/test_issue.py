@@ -5,7 +5,7 @@ from fastapi.testclient import TestClient
 
 import routers.issue as issue_router
 from main import app
-from models.agent_outcome import AgentOutcome
+from models.agent_outcome import AgentOutcome, ContractorResult
 from services import issues_db
 
 client = TestClient(app)
@@ -35,7 +35,38 @@ def test_submitting_an_issue_returns_the_agents_outcome(monkeypatch):
         "sources": ["https://example.com/a"],
         "clarifying_question": None,
         "summary": "Full breakdown of typical costs for a dripping tap...",
+        "contractors": [],
     }
+
+
+def test_submitting_an_issue_returns_the_agents_contractor_picks(monkeypatch):
+    outcome = AgentOutcome(
+        status="done",
+        contractors=[
+            ContractorResult(
+                name="Test Plumbing Co",
+                trade="plumbing/heating",
+                source_url="https://example.com/test-plumbing-co",
+                phone_number="0000 000 0001",
+            )
+        ],
+    )
+    monkeypatch.setattr(
+        issue_router, "run_agent", lambda issue_text, client, save: outcome
+    )
+
+    response = client.post("/api/issue", json={"issue_text": "The boiler is leaking"})
+
+    assert response.status_code == 200
+    assert response.json()["contractors"] == [
+        {
+            "name": "Test Plumbing Co",
+            "trade": "plumbing/heating",
+            "source_url": "https://example.com/test-plumbing-co",
+            "email": None,
+            "phone_number": "0000 000 0001",
+        }
+    ]
 
 
 def test_submitting_an_issue_logs_that_the_route_was_triggered(monkeypatch, caplog):
@@ -84,3 +115,22 @@ def test_getting_issues_returns_previously_saved_issues_newest_first(database_ur
         "second issue",
         "first issue",
     ]
+
+
+def test_getting_issues_shows_whether_each_issue_has_a_linked_contractor(database_url):
+    issues_db.save(
+        "The boiler is leaking",
+        AgentOutcome(
+            status="done",
+            contractors=[ContractorResult(name="Test Plumbing Co")],
+        ),
+    )
+    issues_db.save("The kitchen tap is dripping", AgentOutcome(status="done"))
+
+    response = client.get("/api/issues")
+
+    by_text = {issue["source_text"]: issue["has_contractor"] for issue in response.json()}
+    assert by_text == {
+        "The boiler is leaking": True,
+        "The kitchen tap is dripping": False,
+    }
