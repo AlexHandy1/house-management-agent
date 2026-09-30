@@ -1,3 +1,4 @@
+import logging
 import os
 from decimal import Decimal
 from unittest.mock import MagicMock
@@ -72,6 +73,30 @@ def test_a_clarifying_question_and_a_failed_run_are_stored_without_cost_estimate
     assert needs_info["clarifying_question"] == "Which room is affected?"
     assert needs_info["cost_best"] is None
     assert needs_info["supporting_web_sources"] == []
+
+
+def test_saving_an_issue_logs_the_issue_id_and_contractor_count_without_the_issue_text(
+    database_url, caplog
+):
+    outcome = AgentOutcome(
+        status="done",
+        contractors=[
+            ContractorResult(name="Test Plumbing Co"),
+            ContractorResult(name="Sample Heating Ltd"),
+        ],
+    )
+
+    with caplog.at_level(logging.INFO):
+        row = issues_db.save("The boiler is leaking", outcome)
+
+    matching = [
+        record
+        for record in caplog.records
+        if getattr(record, "issue_id", None) == row["id"]
+    ]
+    assert matching, "expected a log record tagged with the saved issue's id"
+    assert getattr(matching[0], "contractor_count", None) == 2
+    assert not any("boiler" in record.getMessage().lower() for record in caplog.records)
 
 
 def test_an_issue_saved_with_contractors_is_listed_as_having_a_contractor(database_url):

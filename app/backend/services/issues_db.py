@@ -1,3 +1,4 @@
+import logging
 import os
 from typing import Any
 
@@ -8,6 +9,8 @@ from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 
 from models.agent_outcome import AgentOutcome, ContractorResult
+
+logger = logging.getLogger(__name__)
 
 DATABASE_PASSWORD_SECRET_ID = "DATABASE_PASSWORD"
 
@@ -109,6 +112,14 @@ def save(source_text: str, outcome: AgentOutcome) -> dict[str, Any]:
                 """,
                 (row["id"], contractor_id),
             )
+    logger.info(
+        "Issue saved",
+        extra={
+            "issue_id": row["id"],
+            "status": outcome.status,
+            "contractor_count": len(outcome.contractors),
+        },
+    )
     return row
 
 
