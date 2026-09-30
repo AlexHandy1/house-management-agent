@@ -237,7 +237,7 @@ def test_the_agent_saves_a_clarifying_question_when_the_issue_is_too_vague():
     assert outcome.cost_best is None
 
 
-def test_a_failed_outcome_is_saved_when_the_agent_stops_without_saving_a_result():
+def test_the_agent_falls_back_to_a_clarifying_question_when_it_stops_without_saving_anything():
     llm = llm_replying_with(text_reply("It's probably a washer."))
     saved = []
 
@@ -246,7 +246,8 @@ def test_a_failed_outcome_is_saved_when_the_agent_stops_without_saving_a_result(
     )
 
     assert saved == [("The tap drips", outcome)]
-    assert outcome.status == "failed"
+    assert outcome.status == "needs_info"
+    assert outcome.clarifying_question == agent.FALLBACK_CLARIFYING_QUESTION
 
 
 def test_the_agent_recovers_from_a_single_transient_empty_choices_response():
