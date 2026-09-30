@@ -41,7 +41,8 @@ def llm_replying_with(*replies):
 
 def test_the_agent_saves_the_cost_estimate_it_commits_to():
     llm = llm_replying_with(
-        tool_call_reply("save_cost_estimate", {"best": 225, "low": 150, "high": 300})
+        tool_call_reply("save_cost_estimate", {"best": 225, "low": 150, "high": 300}),
+        text_reply("Done."),
     )
     saved = []
 
@@ -58,6 +59,30 @@ def test_the_agent_saves_the_cost_estimate_it_commits_to():
     )
 
 
+def test_the_agent_can_save_a_cost_estimate_and_then_keep_working_in_the_same_run():
+    llm = llm_replying_with(
+        tool_call_reply("save_cost_estimate", {"best": 225, "low": 150, "high": 300}),
+        tool_call_reply("find_contractors", {}),
+        text_reply("Test Plumbing Co, https://example.com/test-plumbing-co"),  # sub-call findings
+        text_reply("Done."),
+    )
+    saved = []
+
+    outcome = agent.run_agent(
+        "The kitchen tap is dripping", llm, save=lambda text, o: saved.append((text, o))
+    )
+
+    assert saved == [("The kitchen tap is dripping", outcome)]
+    assert (outcome.cost_best, outcome.cost_low, outcome.cost_high) == (
+        Decimal(225),
+        Decimal(150),
+        Decimal(300),
+    )
+    # all four queued model replies were consumed — the loop kept going past the
+    # save_cost_estimate call instead of ending the run on the first save
+    assert llm.chat.completions.create.call_count == 4
+
+
 def test_the_sources_saved_with_an_estimate_are_the_urls_the_cost_research_found():
     llm = llm_replying_with(
         tool_call_reply("research_cost", {}),
@@ -66,6 +91,7 @@ def test_the_sources_saved_with_an_estimate_are_the_urls_the_cost_research_found
             "£60-£90 per hour: https://example.com/b, see also https://example.com/a."
         ),
         tool_call_reply("save_cost_estimate", {"best": 120, "low": 80, "high": 200}),
+        text_reply("Done."),
     )
     saved = []
 
@@ -85,6 +111,7 @@ def test_the_research_findings_are_saved_as_the_outcomes_full_summary():
             "https://example.com/a."
         ),
         tool_call_reply("save_cost_estimate", {"best": 120, "low": 80, "high": 200}),
+        text_reply("Done."),
     )
     saved = []
 
@@ -96,6 +123,102 @@ def test_the_research_findings_are_saved_as_the_outcomes_full_summary():
         "Replacement tap washers cost £5-£20, plumbers charge £60-£90 per hour: "
         "https://example.com/a."
     )
+
+
+def test_the_agent_saves_the_contractors_it_shortlists():
+    llm = llm_replying_with(
+        tool_call_reply("find_contractors", {}),
+        text_reply("Test Plumbing Co, 0000 000 0001, https://example.com/test-plumbing-co"),
+        tool_call_reply(
+            "save_contractors",
+            {
+                "contractors": [
+                    {
+                        "name": "Test Plumbing Co",
+                        "trade": "plumbing",
+                        "source_url": "https://example.com/test-plumbing-co",
+                        "phone_number": "0000 000 0001",
+                    }
+                ]
+            },
+        ),
+        text_reply("Done."),
+    )
+    saved = []
+
+    outcome = agent.run_agent(
+        "The boiler is leaking", llm, save=lambda text, o: saved.append((text, o))
+    )
+
+    assert saved == [("The boiler is leaking", outcome)]
+    assert outcome.status == "done"
+    assert outcome.contractors == [
+        agent.ContractorResult(
+            name="Test Plumbing Co",
+            trade="plumbing",
+            source_url="https://example.com/test-plumbing-co",
+            phone_number="0000 000 0001",
+        )
+    ]
+
+
+def test_the_agent_can_save_contractors_without_a_cost_estimate_when_only_that_is_asked_for():
+    llm = llm_replying_with(
+        tool_call_reply("find_contractors", {}),
+        text_reply("Test Plumbing Co, https://example.com/test-plumbing-co"),
+        tool_call_reply(
+            "save_contractors",
+            {"contractors": [{"name": "Test Plumbing Co"}]},
+        ),
+        text_reply("Done."),
+    )
+    saved = []
+
+    outcome = agent.run_agent(
+        "Do we already have a contractor for the boiler?",
+        llm,
+        save=lambda text, o: saved.append((text, o)),
+    )
+
+    assert outcome.status == "done"
+    assert outcome.cost_best is None
+    assert len(outcome.contractors) == 1
+    assert saved == [("Do we already have a contractor for the boiler?", outcome)]
+
+
+def test_a_clarifying_question_discards_any_cost_estimate_already_saved_this_run():
+    llm = llm_replying_with(
+        tool_call_reply("save_cost_estimate", {"best": 225, "low": 150, "high": 300}),
+        tool_call_reply("save_clarifying_question", {"question": "Which room is affected?"}),
+    )
+    saved = []
+
+    outcome = agent.run_agent(
+        "It's broken", llm, save=lambda text, o: saved.append((text, o))
+    )
+
+    assert saved == [("It's broken", outcome)]
+    assert outcome.status == "needs_info"
+    assert outcome.clarifying_question == "Which room is affected?"
+    assert outcome.cost_best is None
+
+
+def test_a_saved_cost_estimate_survives_hitting_the_round_limit_without_a_final_stop():
+    # 10 rounds of save_cost_estimate, never followed by a no-tool-call reply — the loop
+    # exhausts MAX_ROUNDS without the model ever naturally stopping.
+    llm = llm_replying_with(
+        *(tool_call_reply("save_cost_estimate", {"best": 225, "low": 150, "high": 300})
+          for _ in range(10))
+    )
+    saved = []
+
+    outcome = agent.run_agent(
+        "The kitchen tap is dripping", llm, save=lambda text, o: saved.append((text, o))
+    )
+
+    assert outcome.status == "done"
+    assert outcome.cost_best == Decimal(225)
+    assert saved == [("The kitchen tap is dripping", outcome)]
 
 
 def test_the_agent_saves_a_clarifying_question_when_the_issue_is_too_vague():
@@ -114,7 +237,7 @@ def test_the_agent_saves_a_clarifying_question_when_the_issue_is_too_vague():
     assert outcome.cost_best is None
 
 
-def test_a_failed_outcome_is_saved_when_the_agent_stops_without_saving_a_result():
+def test_the_agent_falls_back_to_a_clarifying_question_when_it_stops_without_saving_anything():
     llm = llm_replying_with(text_reply("It's probably a washer."))
     saved = []
 
@@ -123,13 +246,15 @@ def test_a_failed_outcome_is_saved_when_the_agent_stops_without_saving_a_result(
     )
 
     assert saved == [("The tap drips", outcome)]
-    assert outcome.status == "failed"
+    assert outcome.status == "needs_info"
+    assert outcome.clarifying_question == agent.FALLBACK_CLARIFYING_QUESTION
 
 
 def test_the_agent_recovers_from_a_single_transient_empty_choices_response():
     llm = llm_replying_with(
         empty_choices_reply(),
         tool_call_reply("save_cost_estimate", {"best": 225, "low": 150, "high": 300}),
+        text_reply("Done."),
     )
     saved = []
 

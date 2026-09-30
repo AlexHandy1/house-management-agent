@@ -15,9 +15,10 @@ See:
 
 ## Status
 
-The research-cost agent is live: report an issue, the agent researches real UK repair costs
-(or asks a clarifying question if the issue is too vague), and the result is saved to a
-Postgres database and shown in an issues table. Deployed behind Google-account-only auth
-(Cloud Run IAP), with its own private VPC and database VM, Langfuse observability, and
-CI/CD to GCP Cloud Run. Contractor-finding, issue history filtering, and DB backups are
-still to come — see `ARCHITECTURE.md`'s "What's live vs. deferred".
+The maintenance agent is live: report an issue, and the agent researches real UK repair
+costs, finds contractors, both, or asks a clarifying question — whichever the request
+actually needs — saving the result (and any contractors) to a Postgres database and
+showing it in an issues table with a Contractor Y/N column. Deployed behind
+Google-account-only auth (Cloud Run IAP), with its own private VPC and database VM,
+Langfuse observability, and CI/CD to GCP Cloud Run. A preferred-contractors whitelist,
+multi-turn interactions, issue history filtering, and DB backups are still to come.

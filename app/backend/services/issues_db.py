@@ -1,3 +1,4 @@
+import logging
 import os
 from typing import Any
 
@@ -7,7 +8,9 @@ from google.cloud import secretmanager
 from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 
-from models.agent_outcome import AgentOutcome
+from models.agent_outcome import AgentOutcome, ContractorResult
+
+logger = logging.getLogger(__name__)
 
 DATABASE_PASSWORD_SECRET_ID = "DATABASE_PASSWORD"
 
@@ -31,6 +34,22 @@ CREATE TABLE IF NOT EXISTS issues (
   agent_summary          text,
   created_at             timestamptz NOT NULL DEFAULT now(),
   updated_at             timestamptz NOT NULL DEFAULT now()
+);
+CREATE TABLE IF NOT EXISTS contractors (
+  id            bigserial PRIMARY KEY,
+  name          text        NOT NULL,
+  trade         text,
+  source_url    text,
+  email         text,
+  phone_number  text,
+  created_at    timestamptz NOT NULL DEFAULT now()
+);
+CREATE TABLE IF NOT EXISTS issue_contractors (
+  id             bigserial PRIMARY KEY,
+  issue_id       bigint      NOT NULL REFERENCES issues(id),
+  contractor_id  bigint      NOT NULL REFERENCES contractors(id),
+  created_at     timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (issue_id, contractor_id)
 )
 """
 
@@ -82,10 +101,64 @@ def save(source_text: str, outcome: AgentOutcome) -> dict[str, Any]:
                 outcome.summary,
             ),
         ).fetchone()
-    assert row is not None
+        assert row is not None
+        for contractor in outcome.contractors:
+            contractor_id = _find_or_create_contractor(conn, contractor)
+            conn.execute(
+                """
+                INSERT INTO issue_contractors (issue_id, contractor_id)
+                VALUES (%s, %s)
+                ON CONFLICT (issue_id, contractor_id) DO NOTHING
+                """,
+                (row["id"], contractor_id),
+            )
+    logger.info(
+        "Issue saved",
+        extra={
+            "issue_id": row["id"],
+            "status": outcome.status,
+            "contractor_count": len(outcome.contractors),
+        },
+    )
     return row
+
+
+def _find_or_create_contractor(
+    conn: psycopg.Connection[dict[str, Any]], contractor: ContractorResult
+) -> int:
+    """Reuse a contractor row by exact name match (a contractor found for one issue can be
+    linked to another); otherwise insert a new row."""
+    existing = conn.execute(
+        "SELECT id FROM contractors WHERE name = %s", (contractor.name,)
+    ).fetchone()
+    if existing:
+        return existing["id"]
+    created = conn.execute(
+        """
+        INSERT INTO contractors (name, trade, source_url, email, phone_number)
+        VALUES (%s, %s, %s, %s, %s)
+        RETURNING id
+        """,
+        (
+            contractor.name,
+            contractor.trade,
+            contractor.source_url,
+            contractor.email,
+            contractor.phone_number,
+        ),
+    ).fetchone()
+    assert created is not None
+    return created["id"]
 
 
 def list_issues() -> list[dict[str, Any]]:
     with psycopg.connect(get_database_url(), row_factory=dict_row) as conn:
-        return conn.execute("SELECT * FROM issues ORDER BY created_at DESC, id DESC").fetchall()
+        return conn.execute(
+            """
+            SELECT issues.*, EXISTS (
+                SELECT 1 FROM issue_contractors WHERE issue_contractors.issue_id = issues.id
+            ) AS has_contractor
+            FROM issues
+            ORDER BY created_at DESC, id DESC
+            """
+        ).fetchall()

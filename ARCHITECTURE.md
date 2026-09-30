@@ -7,10 +7,10 @@ Points to ADRs/specs for full reasoning rather than restating it.
 
 - **`app/frontend`** — Vite/React/TypeScript single-page app. A form
   submits an issue and shows a thinking/success/needs-info/error state per
-  the agent's outcome (including its full research findings, not just the
-  headline cost), plus a table of previously saved issues loaded on mount
-  and refreshed after each submit. `vitest` + `@testing-library/react` for
-  tests.
+  the agent's outcome (its full research findings and any contractors
+  found, not just the headline cost), plus a table of previously saved
+  issues loaded on mount and refreshed after each submit, with a
+  Contractor Y/N column. `vitest` + `@testing-library/react` for tests.
 - **`app/backend`** — FastAPI. Routers (`routers/`) handle HTTP; services
   (`services/`) hold the actual logic — the agent loop (`services/agent.py`),
   the issues database layer (`services/issues_db.py`), rate limiting,
@@ -20,22 +20,34 @@ Points to ADRs/specs for full reasoning rather than restating it.
   In production, also serves the frontend's built static files
   (`fastapi.staticfiles`) from a single Docker image/Cloud Run service —
   there is no separate frontend server in production.
-- **The research-cost agent** (`app/backend/services/agent.py`) —
-  `run_agent()`: a ReAct loop (OpenRouter, Mercury 2.5) with three tools —
-  `research_cost` (web-search sub-call), `save_cost_estimate`, and
-  `save_clarifying_question`. Exactly one of the two `save_*` tools ends
-  the run and writes the result via an injected `save` function (production
+- **The maintenance agent** (`app/backend/services/agent.py`) —
+  `run_agent()`: a ReAct loop (OpenRouter, Mercury 2.5) with five tools —
+  `research_cost`/`find_contractors` (web-search sub-calls),
+  `save_cost_estimate`/`save_contractors` (independent — either, both, or
+  neither, based on what the request actually asks for), and
+  `save_clarifying_question`. `save_cost_estimate`/`save_contractors`
+  accumulate into the run rather than ending it; the run ends when the
+  model stops calling tools (or hits `MAX_ROUNDS`), at which point one
+  `AgentOutcome` is written via an injected `save` function (production
   passes `issues_db.save`; evals pass a capturing function, so assertions
-  run against the returned `AgentOutcome` before any DB write). A
-  runtime-only `failed` write covers provider errors, empty responses, or
-  the model stopping without saving. See
+  run against the returned `AgentOutcome` before any DB write).
+  `save_clarifying_question` stays all-or-nothing: it ends the run
+  immediately and discards anything already accumulated. A runtime `failed`
+  write covers provider errors or empty responses; a run that ends with
+  nothing accumulated falls back to `needs_info` rather than `failed`. See
+  ADR-005 for the contractors/agent-loop reasoning and
   `docs/specs/spec-architecture-research-cost-agent-and-issues-db-280926.md`
-  for the full design and REQ-by-REQ status.
+  for the original cost-estimate design and REQ-by-REQ status.
 - **The issues database** — Postgres on a dedicated, free-tier Compute
   Engine VM, reachable only over a private VPC (see the network diagram
   below). `services/issues_db.py`: `init_schema()` (run once, on app
-  startup, via a FastAPI lifespan handler), `save()`, `list_issues()`. See
-  ADR-004 for the full hosting/network/credential-resolution reasoning.
+  startup, via a FastAPI lifespan handler), `save()`, `list_issues()`.
+  `contractors` and `issue_contractors` (a many-to-many join table) hold
+  the agent's contractor picks — `save()` upserts a contractor by name and
+  links it to the issue; `list_issues()` exposes a computed
+  `has_contractor` per issue. See ADR-004 for the hosting/network/
+  credential-resolution reasoning and ADR-005 for the contractors data
+  model.
 - **`infra/`** — Terraform. Provisions Cloud Run, Artifact Registry, Secret
   Manager, IAP + its IAM bindings and audit logging, GitHub Actions'
   Workload Identity Federation, and (as of 29 Sep) the issues-DB VM and its
@@ -66,11 +78,13 @@ Points to ADRs/specs for full reasoning rather than restating it.
 4. `GET /` (or any non-API path) → static frontend files. `POST /api/issue`
    → rate-limited (per-IP), 2000-character-capped issue text → `run_agent()`
    (`services/agent.py`), traced as a single Langfuse `run_agent` span
-   nesting every model/tool call. The agent researches (or asks a
-   clarifying question), writes exactly one row to the issues database via
-   `issues_db.save()`, and the resulting outcome is returned as the
-   response — the row is already saved by the time the HTTP response
-   arrives, not written separately by the router. `GET /api/issues` lists
+   nesting every model/tool call. The agent researches a cost estimate,
+   finds contractors, both, or asks a clarifying question — whichever the
+   request actually calls for — writes exactly one row to the issues
+   database via `issues_db.save()`, and the resulting outcome is returned
+   as the response — the row (and any linked contractors) is already saved
+   by the time the HTTP response arrives, not written separately by the
+   router. `GET /api/issues` lists
    all saved issues, newest first; the frontend calls this on mount and
    again after every submit.
 5. Reaching the issues database: Cloud Run has Direct VPC egress into a
