@@ -2,6 +2,14 @@ import { useEffect, useState } from 'react'
 
 const MAX_ISSUE_TEXT_LENGTH = 2000
 
+type Contractor = {
+  name: string
+  trade: string | null
+  source_url: string | null
+  email: string | null
+  phone_number: string | null
+}
+
 type AgentOutcome = {
   status: 'done' | 'needs_info' | 'failed'
   cost_best: string | null
@@ -10,6 +18,7 @@ type AgentOutcome = {
   sources: string[]
   clarifying_question: string | null
   summary: string | null
+  contractors: Contractor[]
 }
 
 type Issue = {
@@ -21,6 +30,7 @@ type Issue = {
   cost_high: string | null
   supporting_web_sources: string[]
   clarifying_question: string | null
+  has_contractor: boolean
   created_at: string
 }
 
@@ -110,11 +120,25 @@ function SubmitResult({ state }: { state: SubmitState }) {
   }
   return (
     <div className="agent-success">
-      <p>
-        Estimated cost: £{outcome.cost_best} (£{outcome.cost_low}–£{outcome.cost_high}).{' '}
-        {outcome.sources.length} sources.
-      </p>
+      {outcome.cost_best && (
+        <p>
+          Estimated cost: £{outcome.cost_best} (£{outcome.cost_low}–£{outcome.cost_high}).{' '}
+          {outcome.sources.length} sources.
+        </p>
+      )}
       {outcome.summary && <p className="agent-summary">{outcome.summary}</p>}
+      {outcome.contractors.length > 0 && (
+        <ul className="agent-contractors">
+          {outcome.contractors.map((contractor) => (
+            <li key={contractor.name}>
+              {contractor.name}
+              {contractor.trade && ` (${contractor.trade})`}
+              {contractor.phone_number && ` — ${contractor.phone_number}`}
+              {contractor.email && ` — ${contractor.email}`}
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   )
 }
@@ -132,6 +156,7 @@ function IssuesTable({ issues }: { issues: Issue[] }) {
           <th>Status</th>
           <th>Estimate</th>
           <th>Sources</th>
+          <th>Contractor</th>
         </tr>
       </thead>
       <tbody>
@@ -146,6 +171,7 @@ function IssuesTable({ issues }: { issues: Issue[] }) {
                 : '—'}
             </td>
             <td>{issue.supporting_web_sources.length}</td>
+            <td>{issue.has_contractor ? 'Y' : 'N'}</td>
           </tr>
         ))}
       </tbody>

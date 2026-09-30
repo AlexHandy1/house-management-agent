@@ -54,6 +54,7 @@ test('shows a thinking state while the agent researches costs, then a sourced co
       sources: ['https://example.com/a', 'https://example.com/b'],
       clarifying_question: null,
       summary: 'A dripping tap is usually a worn washer, a quick and inexpensive fix.',
+      contractors: [],
     }),
   })
 
@@ -62,6 +63,79 @@ test('shows a thinking state while the agent researches costs, then a sourced co
   expect(screen.getByText(/£150/)).toBeInTheDocument()
   expect(screen.getByText(/2 sources/i)).toBeInTheDocument()
   expect(screen.getByText(/a worn washer/i)).toBeInTheDocument()
+})
+
+test('shows the contractors the agent found alongside the cost estimate', async () => {
+  stubFetch({
+    onSubmit: () =>
+      Promise.resolve({
+        ok: true,
+        json: async () => ({
+          status: 'done',
+          cost_best: '95',
+          cost_low: '70',
+          cost_high: '150',
+          sources: ['https://example.com/a'],
+          clarifying_question: null,
+          summary: 'A dripping tap is usually a worn washer.',
+          contractors: [
+            {
+              name: 'Test Plumbing Co',
+              trade: 'plumbing',
+              source_url: 'https://example.com/test-plumbing-co',
+              email: null,
+              phone_number: '0000 000 0001',
+            },
+          ],
+        }),
+      }),
+  })
+  const user = userEvent.setup()
+  render(<App />)
+
+  await user.type(screen.getByLabelText(/describe the issue/i), 'The boiler is leaking')
+  await user.click(screen.getByRole('button', { name: /submit/i }))
+
+  expect(await screen.findByText(/test plumbing co/i)).toBeInTheDocument()
+  expect(screen.getByText(/0000 000 0001/)).toBeInTheDocument()
+})
+
+test('shows contractors without a broken cost line when only contractors were asked for', async () => {
+  stubFetch({
+    onSubmit: () =>
+      Promise.resolve({
+        ok: true,
+        json: async () => ({
+          status: 'done',
+          cost_best: null,
+          cost_low: null,
+          cost_high: null,
+          sources: [],
+          clarifying_question: null,
+          summary: null,
+          contractors: [
+            {
+              name: 'Test Plumbing Co',
+              trade: 'plumbing',
+              source_url: 'https://example.com/test-plumbing-co',
+              email: null,
+              phone_number: '0000 000 0001',
+            },
+          ],
+        }),
+      }),
+  })
+  const user = userEvent.setup()
+  render(<App />)
+
+  await user.type(
+    screen.getByLabelText(/describe the issue/i),
+    'Do we already have a contractor for the boiler?'
+  )
+  await user.click(screen.getByRole('button', { name: /submit/i }))
+
+  expect(await screen.findByText(/test plumbing co/i)).toBeInTheDocument()
+  expect(screen.queryByText(/£null/i)).not.toBeInTheDocument()
 })
 
 test('shows the clarifying question when the issue is too vague to cost', async () => {
@@ -146,6 +220,45 @@ test('loads previously saved issues on mount without submitting anything', async
   expect(await screen.findByText(/the kitchen tap is dripping/i)).toBeInTheDocument()
 })
 
+test('shows which issues have a linked contractor in the issues table', async () => {
+  stubFetch({
+    issues: [
+      {
+        id: 1,
+        source_text: 'The boiler is leaking',
+        status: 'done',
+        cost_best: '95',
+        cost_low: '70',
+        cost_high: '150',
+        supporting_web_sources: [],
+        clarifying_question: null,
+        has_contractor: true,
+        created_at: '2026-09-30T10:00:00Z',
+      },
+      {
+        id: 2,
+        source_text: 'The kitchen tap is dripping',
+        status: 'done',
+        cost_best: '95',
+        cost_low: '70',
+        cost_high: '150',
+        supporting_web_sources: [],
+        clarifying_question: null,
+        has_contractor: false,
+        created_at: '2026-09-30T09:00:00Z',
+      },
+    ],
+    onSubmit: () => Promise.reject(new Error('should not be called')),
+  })
+
+  render(<App />)
+
+  const table = await screen.findByRole('table')
+  const rows = within(table).getAllByRole('row')
+  expect(within(rows[1]).getByText('Y')).toBeInTheDocument()
+  expect(within(rows[2]).getByText('N')).toBeInTheDocument()
+})
+
 test('refreshes the issues table with the newly saved issue after a submit', async () => {
   const savedIssue = {
     id: 1,
@@ -172,6 +285,7 @@ test('refreshes the issues table with the newly saved issue after a submit', asy
         cost_high: '150',
         sources: [],
         clarifying_question: null,
+        contractors: [],
       }),
     })
     // GET refetch after submit: the agent's write is now visible
