@@ -123,7 +123,9 @@ def save(source_text: str, outcome: AgentOutcome) -> dict[str, Any]:
     return row
 
 
-def _find_or_create_contractor(conn: psycopg.Connection, contractor: ContractorResult) -> int:
+def _find_or_create_contractor(
+    conn: psycopg.Connection[dict[str, Any]], contractor: ContractorResult
+) -> int:
     """Reuse a contractor row by exact name match (a contractor found for one issue can be
     linked to another); otherwise insert a new row."""
     existing = conn.execute(
