@@ -1,0 +1,336 @@
+<!doctype html>
+<!--
+PROTOTYPE — throwaway (see README.md). Standalone static page, kept entirely out
+of app/frontend on purpose (see prior session note: no prototype work inside app/).
+
+Answers: what does the homepage look like with BOTH features on it — the existing
+issue-submission workflow and the new news feed — side by side? The issue box and
+its "result" below it are static mockups copied from app/frontend/src/App.tsx's
+markup/classes, wired to nothing (no fetch, no state) — only the news feed on the
+right is live, fetched from news_feed_api_prototype.py. This page is answering a
+layout question, not re-testing the issue workflow, which already has a real UI.
+
+Run: start the API first (see news_feed_api_prototype.py, port 8001), then just
+open this file in a browser — no server needed for the page itself.
+-->
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>House Management Agent — dashboard layout prototype</title>
+    <style>
+      :root {
+        --text: #4b4a52;
+        --text-h: #17151f;
+        --bg: #fafafa;
+        --surface: #fff;
+        --border: #dcdbe0;
+        --accent: #7c3aed;
+        --accent-text: #fff;
+        --sans: system-ui, 'Segoe UI', Roboto, sans-serif;
+        font: 16px/150% var(--sans);
+        color: var(--text);
+        background: var(--bg);
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --text: #c3c1ca;
+          --text-h: #f3f2f6;
+          --bg: #16151b;
+          --surface: #1e1d24;
+          --border: #34333c;
+          --accent: #a78bfa;
+          --accent-text: #16151b;
+        }
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+      }
+      #root {
+        min-height: 100svh;
+        display: flex;
+        justify-content: center;
+        padding: 48px 24px;
+      }
+      .page {
+        width: 100%;
+        max-width: 1040px;
+      }
+      h1 {
+        font-size: 32px;
+        font-weight: 600;
+        color: var(--text-h);
+        margin: 0 0 24px;
+      }
+      h2 {
+        font-size: 20px;
+        font-weight: 600;
+        color: var(--text-h);
+        margin: 0 0 16px;
+      }
+      .prototype-note {
+        margin: -16px 0 24px;
+        font-size: 13px;
+        color: var(--text);
+        opacity: 0.75;
+      }
+      .layout {
+        display: grid;
+        grid-template-columns: minmax(0, 1.1fr) minmax(0, 0.9fr);
+        gap: 32px;
+        align-items: start;
+      }
+      @media (max-width: 760px) {
+        .layout {
+          grid-template-columns: 1fr;
+        }
+      }
+      .column-label {
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        font-size: 12px;
+        font-weight: 600;
+        color: var(--accent);
+        margin: 0 0 12px;
+      }
+
+      /* --- issue workflow (static mock, copied look from app/frontend) --- */
+      .issue-form {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        padding: 20px;
+      }
+      .issue-form label {
+        font-weight: 600;
+        color: var(--text-h);
+      }
+      .issue-form textarea {
+        min-height: 110px;
+        padding: 12px;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        background: var(--bg);
+        color: var(--text-h);
+        font: inherit;
+        resize: vertical;
+      }
+      .issue-form button {
+        align-self: flex-start;
+        padding: 10px 20px;
+        border: none;
+        border-radius: 8px;
+        background: var(--accent);
+        color: var(--accent-text);
+        font: inherit;
+        font-weight: 600;
+        cursor: pointer;
+      }
+      .agent-success {
+        margin-top: 16px;
+        padding: 16px 20px;
+        border-radius: 12px;
+        border: 1px solid var(--border);
+        border-left: 4px solid var(--accent);
+        background: var(--surface);
+        color: var(--text-h);
+      }
+      .agent-success p {
+        margin: 0 0 8px;
+      }
+      .agent-contractors {
+        list-style: none;
+        margin: 0;
+        padding: 0;
+      }
+      .agent-contractors li {
+        padding: 4px 0;
+      }
+      table {
+        margin-top: 24px;
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 14px;
+      }
+      th,
+      td {
+        text-align: left;
+        padding: 8px 6px;
+        border-bottom: 1px solid var(--border);
+      }
+      th {
+        color: var(--text-h);
+      }
+
+      /* --- news feed (live) --- */
+      .article-card {
+        margin-bottom: 16px;
+        padding: 16px 20px;
+        border-radius: 12px;
+        border: 1px solid var(--border);
+        border-left: 4px solid var(--accent);
+        background: var(--surface);
+      }
+      .article-meta {
+        display: flex;
+        gap: 8px;
+        align-items: baseline;
+        font-size: 13px;
+        color: var(--text);
+        margin-bottom: 4px;
+      }
+      .article-source {
+        font-weight: 600;
+        color: var(--accent);
+      }
+      .article-card h3 {
+        margin: 0 0 6px;
+        font-size: 16px;
+        color: var(--text-h);
+      }
+      .article-card h3 a {
+        color: inherit;
+        text-decoration: none;
+      }
+      .article-card h3 a:hover {
+        text-decoration: underline;
+      }
+      .article-summary {
+        margin: 0;
+        font-size: 14px;
+      }
+      .article-summary.missing {
+        font-style: italic;
+        opacity: 0.7;
+      }
+      .feed-status {
+        font-size: 14px;
+        margin: 0 0 16px;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="root">
+      <div class="page">
+        <h1>House Management Agent</h1>
+        <p class="prototype-note">
+          Layout prototype — the issue box/result/table on the left are static (no submit
+          logic); the news feed on the right is live, fetched from the scraper prototype.
+        </p>
+        <div class="layout">
+          <section>
+            <p class="column-label">Report an issue</p>
+            <form class="issue-form" onsubmit="return false">
+              <label for="issue-text">Describe the issue</label>
+              <textarea
+                id="issue-text"
+                placeholder="e.g. The kitchen tap has been dripping constantly since Tuesday."
+              ></textarea>
+              <button type="submit">Submit</button>
+            </form>
+
+            <div class="agent-success">
+              <p>Estimated cost: £145 (£110–£190). 3 sources.</p>
+              <p>
+                A dripping kitchen mixer tap is usually a worn cartridge or washer — UK
+                call-out plus parts typically falls in this range for a straightforward swap.
+              </p>
+              <ul class="agent-contractors">
+                <li>Clearwater Plumbing (Plumbing) — 0161 496 0000</li>
+                <li>Manchester Rapid Repairs (Plumbing) — hello@mcr-repairs.example</li>
+                <li>Northside Heating &amp; Plumbing (Plumbing) — 07700 900123</li>
+              </ul>
+            </div>
+
+            <table>
+              <thead>
+                <tr>
+                  <th>Date</th>
+                  <th>Issue</th>
+                  <th>Status</th>
+                  <th>Estimate</th>
+                  <th>Contractor</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>30 Sep</td>
+                  <td>Kitchen tap dripping constantly</td>
+                  <td>done</td>
+                  <td>£145 (£110–£190)</td>
+                  <td>Y</td>
+                </tr>
+                <tr>
+                  <td>24 Sep</td>
+                  <td>Boiler pilot light keeps going out</td>
+                  <td>done</td>
+                  <td>£220 (£150–£300)</td>
+                  <td>Y</td>
+                </tr>
+              </tbody>
+            </table>
+          </section>
+
+          <section>
+            <p class="column-label">Landlord news</p>
+            <p class="feed-status" id="feed-status">Loading…</p>
+            <div id="articles"></div>
+          </section>
+        </div>
+      </div>
+    </div>
+    <script>
+      const API_URL = 'http://localhost:8001/news-feed'
+
+      async function load() {
+        const status = document.getElementById('feed-status')
+        const container = document.getElementById('articles')
+        try {
+          const response = await fetch(API_URL)
+          if (!response.ok) throw new Error(`HTTP ${response.status}`)
+          const articles = await response.json()
+          status.textContent = `${articles.length} article(s) from NRLA and the Tenancy Deposit Scheme`
+          container.innerHTML = articles.map(renderCard).join('')
+        } catch (err) {
+          status.textContent = `Couldn't load the feed — is news_feed_api_prototype.py running on port 8001? (${err.message})`
+          container.innerHTML = ''
+        }
+      }
+
+      function renderCard(article) {
+        const date = article.published_date
+          ? new Date(article.published_date).toLocaleDateString('en-GB', {
+              day: 'numeric',
+              month: 'short',
+            })
+          : 'date unknown'
+        const summary = article.summary
+          ? `<p class="article-summary">${escapeHtml(article.summary)}</p>`
+          : `<p class="article-summary missing">No summary available for this source yet.</p>`
+        return `
+          <article class="article-card">
+            <div class="article-meta">
+              <span class="article-source">${escapeHtml(article.source)}</span>
+              <span>${date}</span>
+            </div>
+            <h3><a href="${escapeHtml(article.url)}" target="_blank" rel="noopener">${escapeHtml(article.title)}</a></h3>
+            ${summary}
+          </article>
+        `
+      }
+
+      function escapeHtml(value) {
+        const div = document.createElement('div')
+        div.textContent = value
+        return div.innerHTML
+      }
+
+      load()
+    </script>
+  </body>
+</html>

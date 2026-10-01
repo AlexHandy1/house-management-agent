@@ -1,0 +1,168 @@
+<!doctype html>
+<!--
+PROTOTYPE — throwaway (see README.md). Standalone static page, no build step,
+kept entirely out of app/frontend on purpose. Colour tokens and card styling are
+copied from app/frontend/src/index.css (same --accent/--surface/--border look as
+the issue-submission page) so the feed reads as "part of the app" rather than a
+vacuum, without actually touching the production frontend.
+
+Run: start the API first (see news_feed_api_prototype.py), then just open this
+file in a browser — no server needed for the page itself.
+-->
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>News feed prototype</title>
+    <style>
+      :root {
+        --text: #4b4a52;
+        --text-h: #17151f;
+        --bg: #fafafa;
+        --surface: #fff;
+        --border: #dcdbe0;
+        --accent: #7c3aed;
+        --accent-text: #fff;
+        --sans: system-ui, 'Segoe UI', Roboto, sans-serif;
+        font: 16px/150% var(--sans);
+        color: var(--text);
+        background: var(--bg);
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --text: #c3c1ca;
+          --text-h: #f3f2f6;
+          --bg: #16151b;
+          --surface: #1e1d24;
+          --border: #34333c;
+          --accent: #a78bfa;
+          --accent-text: #16151b;
+        }
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+      }
+      #root {
+        min-height: 100svh;
+        display: flex;
+        justify-content: center;
+        padding: 48px 24px;
+      }
+      main {
+        width: 100%;
+        max-width: 640px;
+      }
+      h1 {
+        font-size: 32px;
+        font-weight: 600;
+        color: var(--text-h);
+        margin: 0 0 8px;
+      }
+      .subtitle {
+        margin: 0 0 24px;
+      }
+      .article-card {
+        margin-top: 16px;
+        padding: 16px 20px;
+        border-radius: 12px;
+        border: 1px solid var(--border);
+        border-left: 4px solid var(--accent);
+        background: var(--surface);
+      }
+      .article-meta {
+        display: flex;
+        gap: 8px;
+        align-items: baseline;
+        font-size: 13px;
+        color: var(--text);
+        margin-bottom: 4px;
+      }
+      .article-source {
+        font-weight: 600;
+        color: var(--accent);
+      }
+      .article-card h3 {
+        margin: 0 0 6px;
+        font-size: 17px;
+        color: var(--text-h);
+      }
+      .article-card h3 a {
+        color: inherit;
+        text-decoration: none;
+      }
+      .article-card h3 a:hover {
+        text-decoration: underline;
+      }
+      .article-summary {
+        margin: 0;
+      }
+      .article-summary.missing {
+        font-style: italic;
+        opacity: 0.7;
+      }
+      .loading,
+      .error {
+        margin-top: 16px;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="root">
+      <main>
+        <h1>Landlord news feed</h1>
+        <p class="subtitle" id="subtitle">Loading…</p>
+        <div id="articles"></div>
+      </main>
+    </div>
+    <script>
+      const API_URL = 'http://localhost:8001/news-feed'
+
+      async function load() {
+        const subtitle = document.getElementById('subtitle')
+        const container = document.getElementById('articles')
+        try {
+          const response = await fetch(API_URL)
+          if (!response.ok) throw new Error(`HTTP ${response.status}`)
+          const articles = await response.json()
+          subtitle.textContent = `${articles.length} article(s) from NRLA and the Tenancy Deposit Scheme`
+          container.innerHTML = articles.map(renderCard).join('')
+        } catch (err) {
+          subtitle.textContent = ''
+          container.innerHTML = `<p class="error">Couldn't load the feed — is news_feed_api_prototype.py running on port 8001? (${err.message})</p>`
+        }
+      }
+
+      function renderCard(article) {
+        const date = article.published_date
+          ? new Date(article.published_date).toLocaleDateString('en-GB', {
+              day: 'numeric',
+              month: 'short',
+            })
+          : 'date unknown'
+        const summary = article.summary
+          ? `<p class="article-summary">${escapeHtml(article.summary)}</p>`
+          : `<p class="article-summary missing">No summary available for this source yet.</p>`
+        return `
+          <article class="article-card">
+            <div class="article-meta">
+              <span class="article-source">${escapeHtml(article.source)}</span>
+              <span>${date}</span>
+            </div>
+            <h3><a href="${escapeHtml(article.url)}" target="_blank" rel="noopener">${escapeHtml(article.title)}</a></h3>
+            ${summary}
+          </article>
+        `
+      }
+
+      function escapeHtml(value) {
+        const div = document.createElement('div')
+        div.textContent = value
+        return div.innerHTML
+      }
+
+      load()
+    </script>
+  </body>
+</html>
