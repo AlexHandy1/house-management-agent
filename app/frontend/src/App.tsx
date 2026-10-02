@@ -21,6 +21,14 @@ type AgentOutcome = {
   contractors: Contractor[]
 }
 
+type Article = {
+  source: string
+  title: string
+  url: string
+  published_date: string | null
+  summary: string | null
+}
+
 type Issue = {
   id: number
   source_text: string
@@ -44,6 +52,7 @@ function App() {
   const [issueText, setIssueText] = useState('')
   const [submitState, setSubmitState] = useState<SubmitState>({ kind: 'idle' })
   const [issues, setIssues] = useState<Issue[]>([])
+  const [articles, setArticles] = useState<Article[]>([])
 
   async function loadIssues() {
     const result = await fetch('/api/issues')
@@ -51,8 +60,15 @@ function App() {
     setIssues(body)
   }
 
+  async function loadNewsFeed() {
+    const result = await fetch('/api/news-feed')
+    const body = await result.json()
+    setArticles(body)
+  }
+
   useEffect(() => {
     loadIssues()
+    loadNewsFeed()
   }, [])
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
@@ -96,6 +112,7 @@ function App() {
       </form>
       <SubmitResult state={submitState} />
       <IssuesTable issues={issues} />
+      <NewsFeed articles={articles} />
     </main>
   )
 }
@@ -176,6 +193,37 @@ function IssuesTable({ issues }: { issues: Issue[] }) {
         ))}
       </tbody>
     </table>
+  )
+}
+
+function NewsFeed({ articles }: { articles: Article[] }) {
+  if (articles.length === 0) {
+    return null
+  }
+  return (
+    <section className="news-feed">
+      <h2>Landlord news</h2>
+      {articles.map((article) => (
+        <article className="article-card" key={article.url}>
+          <div className="article-meta">
+            <span className="article-source">{article.source}</span>
+            {article.published_date && (
+              <span>{new Date(article.published_date).toLocaleDateString('en-GB')}</span>
+            )}
+          </div>
+          <h3>
+            <a href={article.url} target="_blank" rel="noopener noreferrer">
+              {article.title}
+            </a>
+          </h3>
+          {article.summary ? (
+            <p className="article-summary">{article.summary}</p>
+          ) : (
+            <p className="article-summary missing">No summary available for this source.</p>
+          )}
+        </article>
+      ))}
+    </section>
   )
 }
 
