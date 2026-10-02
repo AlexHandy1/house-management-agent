@@ -1,8 +1,9 @@
 # Infrastructure (Terraform)
 
 Provisions House Management Agent's GCP infrastructure: Cloud Run (behind
-native IAP), Artifact Registry, Secret Manager, IAP Data Access audit
-logging, and Workload Identity Federation for GitHub Actions.
+native IAP), the news feed Cloud Run Job and its Cloud Scheduler trigger,
+Artifact Registry, Secret Manager, IAP Data Access audit logging, and
+Workload Identity Federation for GitHub Actions.
 
 ## One-time bootstrap (outside Terraform)
 

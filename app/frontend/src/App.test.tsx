@@ -13,14 +13,19 @@ test('renders the House Management Agent heading', () => {
 
 function stubFetch({
   issues = [],
+  articles = [],
   onSubmit,
 }: {
   issues?: unknown[]
+  articles?: unknown[]
   onSubmit: () => Promise<unknown>
 }) {
-  const fetchMock = vi.fn((_url: string, options?: RequestInit) => {
+  const fetchMock = vi.fn((url: string, options?: RequestInit) => {
     if (options?.method === 'POST') {
       return onSubmit()
+    }
+    if (url === '/api/news-feed') {
+      return Promise.resolve({ ok: true, json: async () => articles })
     }
     return Promise.resolve({ ok: true, json: async () => issues })
   })
@@ -197,6 +202,42 @@ test('shows an error state when the request to submit the issue fails outright',
   expect(await screen.findByText(/something went wrong/i)).toBeInTheDocument()
 })
 
+test('shows the latest news feed articles on load, newest first as returned by the API', async () => {
+  stubFetch({
+    articles: [
+      {
+        source: 'Tenancy Deposit Scheme',
+        title: 'new deposit rules',
+        url: 'https://www.tenancydepositscheme.com/news/new-deposit-rules',
+        published_date: '2026-09-28',
+        summary: null,
+      },
+      {
+        source: 'NRLA',
+        title: 'Landlord licensing update',
+        url: 'https://www.nrla.org.uk/news/landlord-licensing-update',
+        published_date: '2026-09-20',
+        summary: 'A summary of the licensing changes.',
+      },
+    ],
+    onSubmit: () => Promise.reject(new Error('should not be called')),
+  })
+
+  render(<App />)
+
+  const firstArticleLink = await screen.findByRole('link', { name: /new deposit rules/i })
+  const secondArticleLink = screen.getByRole('link', { name: /landlord licensing update/i })
+  expect(firstArticleLink).toHaveAttribute(
+    'href',
+    'https://www.tenancydepositscheme.com/news/new-deposit-rules'
+  )
+  expect(screen.getByText(/a summary of the licensing changes/i)).toBeInTheDocument()
+  const articleLinks = screen.getAllByRole('link')
+  expect(articleLinks.indexOf(firstArticleLink)).toBeLessThan(
+    articleLinks.indexOf(secondArticleLink)
+  )
+})
+
 test('loads previously saved issues on mount without submitting anything', async () => {
   stubFetch({
     issues: [
@@ -271,25 +312,30 @@ test('refreshes the issues table with the newly saved issue after a submit', asy
     clarifying_question: null,
     created_at: '2026-09-29T10:00:00Z',
   }
-  const fetchMock = vi
-    .fn()
-    // GET on mount: table starts empty
-    .mockResolvedValueOnce({ ok: true, json: async () => [] })
-    // POST on submit
-    .mockResolvedValueOnce({
-      ok: true,
-      json: async () => ({
-        status: 'done',
-        cost_best: '95',
-        cost_low: '70',
-        cost_high: '150',
-        sources: [],
-        clarifying_question: null,
-        contractors: [],
-      }),
-    })
-    // GET refetch after submit: the agent's write is now visible
-    .mockResolvedValueOnce({ ok: true, json: async () => [savedIssue] })
+  // Table starts empty on mount, then shows the saved issue once the agent's
+  // write is visible after the refetch that follows a submit.
+  let issues: unknown[] = []
+  const fetchMock = vi.fn((url: string, options?: RequestInit) => {
+    if (options?.method === 'POST') {
+      issues = [savedIssue]
+      return Promise.resolve({
+        ok: true,
+        json: async () => ({
+          status: 'done',
+          cost_best: '95',
+          cost_low: '70',
+          cost_high: '150',
+          sources: [],
+          clarifying_question: null,
+          contractors: [],
+        }),
+      })
+    }
+    if (url === '/api/news-feed') {
+      return Promise.resolve({ ok: true, json: async () => [] })
+    }
+    return Promise.resolve({ ok: true, json: async () => issues })
+  })
   vi.stubGlobal('fetch', fetchMock)
   const user = userEvent.setup()
   render(<App />)

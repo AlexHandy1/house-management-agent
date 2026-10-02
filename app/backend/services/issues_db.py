@@ -1,18 +1,14 @@
 import logging
-import os
 from typing import Any
 
-import google.auth
 import psycopg
-from google.cloud import secretmanager
 from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 
 from models.agent_outcome import AgentOutcome, ContractorResult
+from services.db_connection import get_database_url
 
 logger = logging.getLogger(__name__)
-
-DATABASE_PASSWORD_SECRET_ID = "DATABASE_PASSWORD"
 
 # CREATE TABLE IF NOT EXISTS only ever creates — it never alters an
 # existing table, so changing a column here does nothing on a database
@@ -52,28 +48,6 @@ CREATE TABLE IF NOT EXISTS issue_contractors (
   UNIQUE (issue_id, contractor_id)
 )
 """
-
-
-def get_database_url() -> str:
-    """Picks the connection source by environment: assembled from Secret
-    Manager + non-secret env vars when deployed on Cloud Run (K_SERVICE is
-    set automatically there, never locally), the local DATABASE_URL env
-    var (.env) otherwise — mirrors services.agent.resolve_api_key()."""
-    if os.environ.get("K_SERVICE"):
-        password = _fetch_database_password_from_secret_manager()
-        host = os.environ["DB_HOST"]
-        name = os.environ["DB_NAME"]
-        user = os.environ["DB_USER"]
-        return f"postgresql://{user}:{password}@{host}/{name}"
-    return os.environ["DATABASE_URL"]
-
-
-def _fetch_database_password_from_secret_manager() -> str:
-    _, project_id = google.auth.default()
-    client = secretmanager.SecretManagerServiceClient()
-    name = f"projects/{project_id}/secrets/{DATABASE_PASSWORD_SECRET_ID}/versions/latest"
-    response = client.access_secret_version(request={"name": name})
-    return response.payload.data.decode("UTF-8")
 
 
 def init_schema() -> None:

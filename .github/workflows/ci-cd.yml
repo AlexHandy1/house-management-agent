@@ -16,6 +16,7 @@ env:
   REGION: europe-west1
   SERVICE: house-management-agent-production
   IMAGE: europe-west1-docker.pkg.dev/house-management-agent/house-management-agent/app
+  NEWS_FEED_JOB: house-mgmt-news-feed-pull
 
 jobs:
   lint-typecheck-backend:
@@ -149,3 +150,16 @@ jobs:
             echo "Deployment did not become Ready" >&2
             exit 1
           fi
+
+      - name: Update news feed Job image
+        # The news feed Job (infra/news_feed_job.tf) deliberately shares this
+        # same image rather than a second Dockerfile/build — only its
+        # container command differs (set in Terraform), not its deps. This
+        # only ever touches the image field, same as the Service deploy
+        # above; Terraform still owns everything else about the Job.
+        run: |
+          gcloud run jobs update "$NEWS_FEED_JOB" \
+            --image="$IMAGE:${{ github.sha }}" \
+            --region="$REGION" \
+            --project="$PROJECT_ID" \
+            --quiet

@@ -52,6 +52,22 @@ Comparison and findings: `../docs/status_docs/WORK_SUMMARY_100926.md`.
   `state_management_flow.db` and `logs/` are gitignored; `property.yaml` holds the static
   property grounding. Findings: `../docs/status_docs/WORK_SUMMARY_100926.md` (last section).
 
+### News feed data pull + UI shape
+
+- `news_feed_data_pull_prototype.py` — deterministic (no-LLM) NRLA/TDS article pull,
+  in-memory only.
+- `news_feed_api_prototype.py` — thin standalone FastAPI wrapper, own port, kept out of
+  `app/backend` deliberately.
+- `news_feed_ui_prototype.html`, `news_feed_dashboard_prototype.html` — standalone static
+  pages checking the article-card look and the two-column homepage layout.
+
+Superseded by the real build — `app/backend/services/news_data_pull.py`,
+`services/articles_table.py`, `jobs/pull_news_feed.py`, `routers/news_feed.py`, and
+`app/frontend/src/App.tsx`'s `NewsFeed` component. See
+`../docs/decisions/ADR-006-news-feed-automation-topology.md` and
+`../docs/status_docs/WORK_SUMMARY_011026.md` (prototyping) /
+`../docs/status_docs/WORK_SUMMARY_021026.md` (build).
+
 ## Run
 
 ```bash

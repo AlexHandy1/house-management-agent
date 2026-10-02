@@ -10,16 +10,23 @@ Points to ADRs/specs for full reasoning rather than restating it.
   the agent's outcome (its full research findings and any contractors
   found, not just the headline cost), plus a table of previously saved
   issues loaded on mount and refreshed after each submit, with a
-  Contractor Y/N column. `vitest` + `@testing-library/react` for tests.
+  Contractor Y/N column. A right-hand column shows the latest news feed
+  articles (`GET /api/news-feed`), fetched once on mount. `vitest` +
+  `@testing-library/react` for tests.
 - **`app/backend`** — FastAPI. Routers (`routers/`) handle HTTP; services
   (`services/`) hold the actual logic — the agent loop (`services/agent.py`),
   the issues database layer (`services/issues_db.py`), rate limiting,
-  Langfuse config, IAP identity verification. `pytest` for tests, with
-  `eval` (real LLM calls, see ADR-003) and `e2e` (real browser + full
-  stack, `tests/e2e/`) markers separating them from the default fast run.
+  Langfuse config, IAP identity verification, and shared DB credential
+  resolution (`services/db_connection.py`, used by both the Service and
+  the news feed Job below). `pytest` for tests, with an `eval` marker
+  (real LLM calls, see ADR-003) separating them from the default fast run.
   In production, also serves the frontend's built static files
   (`fastapi.staticfiles`) from a single Docker image/Cloud Run service —
-  there is no separate frontend server in production.
+  there is no separate frontend server in production. Genuine full-stack
+  e2e tests (real browser, against Postgres + the backend + the frontend
+  all actually running locally, via `agent-browser`) live separately in
+  `app/tests/` — costs money and hits real external sites; run explicitly
+  (`pytest -m e2e app/tests -s`), never in CI.
 - **The maintenance agent** (`app/backend/services/agent.py`) —
   `run_agent()`: a ReAct loop (OpenRouter, Mercury 2.5) with five tools —
   `research_cost`/`find_contractors` (web-search sub-calls),
@@ -48,6 +55,20 @@ Points to ADRs/specs for full reasoning rather than restating it.
   `has_contractor` per issue. See ADR-004 for the hosting/network/
   credential-resolution reasoning and ADR-005 for the contractors data
   model.
+- **The news feed** — `app/backend/jobs/pull_news_feed.py`, a Cloud Run Job
+  (`infra/news_feed_job.tf`) triggered by Cloud Scheduler every 2 days, pulls
+  NRLA (`services/news_data_pull.py`, server-rendered HTML) and Tenancy
+  Deposit Scheme (sitemap XML — its `/news` page is a client-rendered SPA
+  with nothing server-side to pull) articles published since
+  `--lookback-days` (default 2), and upserts them into the `articles` table
+  (`services/articles_table.py`, `ON CONFLICT (url) DO NOTHING`). Commits
+  per source: one source failing doesn't lose the other's data that run;
+  the Job exits non-zero if either source failed. Shares the Service's
+  Cloud Run image with an overridden container command, not a second
+  Dockerfile; CI/CD updates both on every deploy to `main`. `GET
+  /api/news-feed` (the Service, read-only) returns the latest 10,
+  newest-first. See ADR-006 for the topology decision and alternatives
+  considered.
 - **`infra/`** — Terraform. Provisions Cloud Run, Artifact Registry, Secret
   Manager, IAP + its IAM bindings and audit logging, GitHub Actions'
   Workload Identity Federation, and (as of 29 Sep) the issues-DB VM and its
@@ -86,7 +107,10 @@ Points to ADRs/specs for full reasoning rather than restating it.
    by the time the HTTP response arrives, not written separately by the
    router. `GET /api/issues` lists
    all saved issues, newest first; the frontend calls this on mount and
-   again after every submit.
+   again after every submit. `GET /api/news-feed` similarly lists the
+   latest 10 articles, newest first — read-only; nothing in the Service
+   ever writes to the `articles` table, only the news feed Job (see
+   Components above) does.
 5. Reaching the issues database: Cloud Run has Direct VPC egress into a
    dedicated private subnet: see the network diagram below.
 
