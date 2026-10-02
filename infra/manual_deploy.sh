@@ -13,6 +13,7 @@ PROJECT_ID="house-management-agent"
 REGION="europe-west1"
 SERVICE="house-management-agent-production"
 IMAGE="europe-west1-docker.pkg.dev/house-management-agent/house-management-agent/app"
+NEWS_FEED_JOB="house-mgmt-news-feed-pull"
 SHA="$(git rev-parse HEAD)"
 
 echo "==> Configuring docker auth for Artifact Registry (idempotent)"
@@ -46,3 +47,15 @@ fi
 
 echo "==> Deploy of ${SHA} to service ${SERVICE} succeeded and is Ready."
 echo "    Verify manually via the Cloud Run console URL (behind IAP sign-in)."
+
+echo "==> Updating news feed Job ${NEWS_FEED_JOB} to the same image"
+# Shares the Service's image rather than a second build — see
+# infra/news_feed_job.tf. Only the image field changes here; Terraform
+# still owns everything else about the Job.
+gcloud run jobs update "$NEWS_FEED_JOB" \
+  --image="${IMAGE}:${SHA}" \
+  --region="$REGION" \
+  --project="$PROJECT_ID" \
+  --quiet
+
+echo "==> News feed Job ${NEWS_FEED_JOB} now points at ${SHA}."
