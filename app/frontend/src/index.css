@@ -48,7 +48,20 @@ body {
 
 main {
   width: 100%;
-  max-width: 640px;
+  max-width: 1040px;
+}
+
+.layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(0, 0.9fr);
+  gap: 32px;
+  align-items: start;
+}
+
+@media (max-width: 760px) {
+  .layout {
+    grid-template-columns: 1fr;
+  }
 }
 
 h1 {
@@ -143,10 +156,6 @@ h1 {
 
 .agent-contractors li {
   padding: 4px 0;
-}
-
-.news-feed {
-  margin-top: 32px;
 }
 
 .news-feed h2 {

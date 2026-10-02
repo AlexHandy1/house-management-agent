@@ -97,22 +97,28 @@ function App() {
   return (
     <main>
       <h1>House Management Agent</h1>
-      <form className="issue-form" onSubmit={handleSubmit}>
-        <label htmlFor="issue-text">Describe the issue</label>
-        <textarea
-          id="issue-text"
-          value={issueText}
-          maxLength={MAX_ISSUE_TEXT_LENGTH}
-          placeholder="e.g. The kitchen tap has been dripping constantly since Tuesday."
-          onChange={(event) => setIssueText(event.target.value)}
-        />
-        <button type="submit" disabled={isThinking}>
-          {isThinking ? 'Researching costs…' : 'Submit'}
-        </button>
-      </form>
-      <SubmitResult state={submitState} />
-      <IssuesTable issues={issues} />
-      <NewsFeed articles={articles} />
+      <div className="layout">
+        <section>
+          <form className="issue-form" onSubmit={handleSubmit}>
+            <label htmlFor="issue-text">Describe the issue</label>
+            <textarea
+              id="issue-text"
+              value={issueText}
+              maxLength={MAX_ISSUE_TEXT_LENGTH}
+              placeholder="e.g. The kitchen tap has been dripping constantly since Tuesday."
+              onChange={(event) => setIssueText(event.target.value)}
+            />
+            <button type="submit" disabled={isThinking}>
+              {isThinking ? 'Researching costs…' : 'Submit'}
+            </button>
+          </form>
+          <SubmitResult state={submitState} />
+          <IssuesTable issues={issues} />
+        </section>
+        <section>
+          <NewsFeed articles={articles} />
+        </section>
+      </div>
     </main>
   )
 }
