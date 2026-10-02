@@ -22,6 +22,17 @@ resource "google_secret_manager_secret_iam_member" "news_feed_job_password_acces
   member    = "serviceAccount:${google_service_account.news_feed_job.email}"
 }
 
+# CI/CD's deploy identity (wif.tf) needs to actAs this SA to run
+# `gcloud run jobs update --image=...` — same requirement, same grant shape
+# as deploy_can_run_as_runtime_sa in wif.tf for the Service's own runtime SA.
+# Without this, the image-update step fails with PERMISSION_DENIED on
+# iam.serviceaccounts.actAs.
+resource "google_service_account_iam_member" "deploy_can_run_as_news_feed_job_sa" {
+  service_account_id = google_service_account.news_feed_job.name
+  role               = "roles/iam.serviceAccountUser"
+  member             = "serviceAccount:${google_service_account.deploy.email}"
+}
+
 resource "google_cloud_run_v2_job" "news_feed_pull" {
   name                = local.news_feed_job_name
   project             = var.project_id
