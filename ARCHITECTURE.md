@@ -10,16 +10,36 @@ Points to ADRs/specs for full reasoning rather than restating it.
   the agent's outcome (its full research findings and any contractors
   found, not just the headline cost), plus a table of previously saved
   issues loaded on mount and refreshed after each submit, with a
-  Contractor Y/N column. `vitest` + `@testing-library/react` for tests.
+  Contractor Y/N column. A right-hand column shows the latest news feed
+  articles (`GET /api/news-feed`), fetched once on mount. `vitest` +
+  `@testing-library/react` for tests.
 - **`app/backend`** — FastAPI. Routers (`routers/`) handle HTTP; services
   (`services/`) hold the actual logic — the agent loop (`services/agent.py`),
-  the issues database layer (`services/issues_db.py`), rate limiting,
-  Langfuse config, IAP identity verification. `pytest` for tests, with
-  `eval` (real LLM calls, see ADR-003) and `e2e` (real browser + full
-  stack, `tests/e2e/`) markers separating them from the default fast run.
-  In production, also serves the frontend's built static files
-  (`fastapi.staticfiles`) from a single Docker image/Cloud Run service —
-  there is no separate frontend server in production.
+  the issues database layer (`services/issues_db.py`), the articles table
+  layer (`services/articles_table.py`), rate limiting, Langfuse config, IAP
+  identity verification, shared DB credential resolution
+  (`services/db_connection.py`, used by both the Service and the news feed
+  Job below). `pytest` for tests, with an `eval` marker (real LLM calls, see
+  ADR-003) separating them from the default fast run. In production, also
+  serves the frontend's built static files (`fastapi.staticfiles`) from a
+  single Docker image/Cloud Run service — there is no separate frontend
+  server in production.
+- **`app/backend/jobs/pull_news_feed.py`** — the news feed Job entrypoint
+  (not yet deployed/scheduled — see
+  `docs/specs/news-feed-automation-brief-spec-011026.md`). Pulls NRLA
+  (`services/news_data_pull.py`, server-rendered HTML) and Tenancy Deposit
+  Scheme (sitemap XML — its `/news` page is a client-rendered SPA with
+  nothing server-side to pull) articles published since `--lookback-days`
+  (default 2), and upserts them into `articles` (`ON CONFLICT (url) DO
+  NOTHING`) via `services/articles_table.py`. Commits per source: one
+  source failing doesn't lose the other's data that run; the Job exits
+  non-zero if either source failed. Intended to share the Service's Cloud
+  Run image, with an overridden container command — see the brief spec.
+- **`app/tests/`** — genuine full-stack e2e tests (real browser, against
+  Postgres + the backend + the frontend all actually running locally, via
+  `agent-browser`) — distinct from `app/backend/tests/`'s own `eval` marker,
+  which only exercises backend code directly. Costs money and hits real
+  external sites; run explicitly (`pytest -m e2e app/tests -s`), never in CI.
 - **The maintenance agent** (`app/backend/services/agent.py`) —
   `run_agent()`: a ReAct loop (OpenRouter, Mercury 2.5) with five tools —
   `research_cost`/`find_contractors` (web-search sub-calls),
