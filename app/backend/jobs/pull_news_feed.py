@@ -3,8 +3,12 @@ import logging
 from collections.abc import Callable
 from datetime import UTC, date, datetime, timedelta
 
+from dotenv import load_dotenv
+
 from models.article import Article
 from services import articles_table, news_data_pull
+
+load_dotenv()
 
 logger = logging.getLogger(__name__)
 
