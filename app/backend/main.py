@@ -13,7 +13,8 @@ from slowapi.errors import RateLimitExceeded
 
 from routers.health import router as health_router
 from routers.issue import router as issue_router
-from services import iap_identity, issues_db, langfuse_config
+from routers.news_feed import router as news_feed_router
+from services import articles_table, iap_identity, issues_db, langfuse_config
 from services.rate_limiter import handle_rate_limit_exceeded, limiter
 
 load_dotenv()
@@ -51,6 +52,7 @@ DEFAULT_STATIC_DIR = Path(__file__).parent / "static"
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     issues_db.init_schema()
+    articles_table.init_schema()
     yield
 
 
@@ -76,6 +78,7 @@ def create_app(static_dir: Path = DEFAULT_STATIC_DIR) -> FastAPI:
 
     app.include_router(health_router)
     app.include_router(issue_router)
+    app.include_router(news_feed_router)
     # Any future router must be included above this line — the static mount
     # matches every remaining path, so routes added after it are unreachable.
     if static_dir.is_dir():
