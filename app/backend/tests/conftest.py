@@ -4,7 +4,7 @@ import psycopg
 import pytest
 
 from main import app
-from services import issues_db
+from services import articles_table, issues_db
 
 TEST_DATABASE_NAME = "house_mgmt_test"
 LOCAL_POSTGRES_URL = "postgresql://postgres:postgres@localhost:5432"
@@ -52,3 +52,13 @@ def database_url(monkeypatch):
     with psycopg.connect(url) as conn:
         conn.execute("TRUNCATE issues, contractors, issue_contractors RESTART IDENTITY CASCADE")
     return url
+
+
+@pytest.fixture
+def articles_database_url(database_url):
+    """A clean articles table, in the same test database database_url already
+    set up — mirrors database_url's shape for the articles_table module."""
+    articles_table.init_schema()
+    with psycopg.connect(database_url) as conn:
+        conn.execute("TRUNCATE articles RESTART IDENTITY CASCADE")
+    return database_url
