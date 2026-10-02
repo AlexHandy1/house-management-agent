@@ -1,7 +1,11 @@
 # Brief spec: news feed automation (pulling data + scheduling + display)
 
 **Date**: 2026-10-01
-**Status**: Agreed direction, not yet built — pick up in a new session.
+**Status**: Built and deployed (2026-10-02). All five open questions below were resolved
+during the build session; the topology decision is now formalized in
+`docs/decisions/ADR-006-news-feed-automation-topology.md`, which supersedes this doc as the
+source of truth for *why* — this spec is kept for the original design discussion and the
+resolutions below.
 **Format note**: deliberately brief, not the full `/create-technical-spec` template —
 this is a copilot session starting point, not a spec for an autonomous agent to build
 unsupervised from. Expect to clarify/extend in the build session itself.
@@ -54,20 +58,20 @@ productionizing and automating that, not re-deciding what it looks like.
   Job's entrypoint needs its own credential-resolution path, not a direct reuse of that
   function as-is.
 
-## Open questions for the build session
+## Open questions for the build session — resolved 2026-10-02
 
-1. Transaction semantics: one all-or-nothing transaction per run, or commit-per-source
-   (NRLA succeeds even if TDS fails)? Affects what "failed run = nothing written" means.
-2. Upsert semantics on a URL collision: `DO NOTHING` (first-seen wins) or `DO UPDATE`
-   (refresh title/summary/date)? Matters because TDS's "published date" is really sitemap
-   `lastmod`, which can bump on an edit to an old article, not just a genuine repost.
-3. Dedicated Postgres role for the Job, or accept the existing single-role model for now?
-4. Lookback window for production: prototype used 7 days (NRLA/TDS had nothing in the
-   PRD's target 2-day window at prototype time) — confirm 2 days is viable now, or keep
-   a wider window permanently.
-5. TDS articles currently have no summary (no server-rendered content available) — is a
-   title-only card acceptable long-term, or does this need a headless-browser fetch
-   later to get real summaries?
+1. **Transaction semantics**: commit-per-source — the Job tries NRLA and TDS
+   independently, each in its own step; one failing doesn't lose the other's data that
+   run. See ADR-006.
+2. **Upsert semantics**: `ON CONFLICT (url) DO NOTHING` (first-seen wins) —
+   `services/articles_table.py`.
+3. **Dedicated Postgres role**: not built — the existing single-role model is accepted,
+   per ADR-004/ADR-006 (explicitly a deliberate, revisitable gap, not an oversight).
+4. **Lookback window**: `--lookback-days` CLI arg on the Job, default 2 for scheduled
+   runs; a wider window (e.g. 7) can be passed explicitly for a one-off seed run —
+   `jobs/pull_news_feed.py`.
+5. **TDS summary**: title-only cards accepted as the long-term shape — no headless-browser
+   fetch planned.
 
 ## Explicitly not in this slice
 
@@ -80,9 +84,12 @@ productionizing and automating that, not re-deciding what it looks like.
 ## References
 
 - `docs/prds/production-v1-prd-200926.md` — Stories 3 & 4, original scope.
+- `docs/decisions/ADR-006-news-feed-automation-topology.md` — the formalized topology
+  decision and alternatives considered; supersedes this spec as the source of truth for
+  *why*.
 - `docs/decisions/ADR-004-issues-database-hosting.md` — DB hosting/network/credential
   pattern this Job must follow.
-- `prototypes/news_feed_scrape_prototype.py`, `news_feed_api_prototype.py`,
+- `prototypes/news_feed_data_pull_prototype.py`, `news_feed_api_prototype.py`,
   `news_feed_dashboard_prototype.html` — validated data-pull logic + UI shape.
 - `infra/cloud_run.tf`, `infra/database.tf` — existing Service's VPC/IAM/secret pattern
-  to mirror for the new Job.
+  mirrored for the new Job (`infra/news_feed_job.tf`).

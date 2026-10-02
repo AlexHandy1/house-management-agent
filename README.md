@@ -18,7 +18,9 @@ See:
 The maintenance agent is live: report an issue, and the agent researches real UK repair
 costs, finds contractors, both, or asks a clarifying question — whichever the request
 actually needs — saving the result (and any contractors) to a Postgres database and
-showing it in an issues table with a Contractor Y/N column. Deployed behind
-Google-account-only auth (Cloud Run IAP), with its own private VPC and database VM,
-Langfuse observability, and CI/CD to GCP Cloud Run. A preferred-contractors whitelist,
-multi-turn interactions, issue history filtering, and DB backups are still to come.
+showing it in an issues table with a Contractor Y/N column. The homepage also shows a
+landlord news feed (NRLA, Tenancy Deposit Scheme), pulled automatically every 2 days by
+a scheduled Cloud Run Job. Deployed behind Google-account-only auth (Cloud Run IAP), with
+its own private VPC and database VM, Langfuse observability, and CI/CD to GCP Cloud Run.
+A preferred-contractors whitelist, multi-turn interactions, issue history filtering, and
+DB backups are still to come.

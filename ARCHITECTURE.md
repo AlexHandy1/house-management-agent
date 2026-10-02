@@ -55,19 +55,20 @@ Points to ADRs/specs for full reasoning rather than restating it.
   `has_contractor` per issue. See ADR-004 for the hosting/network/
   credential-resolution reasoning and ADR-005 for the contractors data
   model.
-- **The news feed** — `app/backend/jobs/pull_news_feed.py` (not yet
-  deployed/scheduled — see
-  `docs/specs/news-feed-automation-brief-spec-011026.md`) pulls NRLA
-  (`services/news_data_pull.py`, server-rendered HTML) and Tenancy Deposit
-  Scheme (sitemap XML — its `/news` page is a client-rendered SPA with
-  nothing server-side to pull) articles published since `--lookback-days`
-  (default 2), and upserts them into the `articles` table
+- **The news feed** — `app/backend/jobs/pull_news_feed.py`, a Cloud Run Job
+  (`infra/news_feed_job.tf`) triggered by Cloud Scheduler every 2 days, pulls
+  NRLA (`services/news_data_pull.py`, server-rendered HTML) and Tenancy
+  Deposit Scheme (sitemap XML — its `/news` page is a client-rendered SPA
+  with nothing server-side to pull) articles published since
+  `--lookback-days` (default 2), and upserts them into the `articles` table
   (`services/articles_table.py`, `ON CONFLICT (url) DO NOTHING`). Commits
   per source: one source failing doesn't lose the other's data that run;
-  the Job exits non-zero if either source failed. Intended to share the
-  Service's Cloud Run image with an overridden container command, not a
-  second Dockerfile — see the brief spec. `GET /api/news-feed` (the
-  Service, read-only) returns the latest 10, newest-first.
+  the Job exits non-zero if either source failed. Shares the Service's
+  Cloud Run image with an overridden container command, not a second
+  Dockerfile; CI/CD updates both on every deploy to `main`. `GET
+  /api/news-feed` (the Service, read-only) returns the latest 10,
+  newest-first. See ADR-006 for the topology decision and alternatives
+  considered.
 - **`infra/`** — Terraform. Provisions Cloud Run, Artifact Registry, Secret
   Manager, IAP + its IAM bindings and audit logging, GitHub Actions'
   Workload Identity Federation, and (as of 29 Sep) the issues-DB VM and its
