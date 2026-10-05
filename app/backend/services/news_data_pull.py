@@ -12,7 +12,6 @@ REQUEST_TIMEOUT = 10
 NRLA_NEWS_URL = "https://www.nrla.org.uk/news"
 TDS_SITEMAP_URLS = [
     "https://www.tenancydepositscheme.com/sitemap-webarticle-1.xml",
-    "https://www.tenancydepositscheme.com/sitemap-webarticle-weekly.xml",
 ]
 TDS_SITEMAP_ENTRY_RE = re.compile(r"<url><loc>(.*?)</loc><lastmod>(.*?)</lastmod></url>")
 

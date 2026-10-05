@@ -28,6 +28,22 @@ def test_fetch_nrla_articles_excludes_articles_published_before_the_cutoff(monke
     assert article.summary == "A summary of the new rules."
 
 
+def test_fetch_tds_articles_only_requests_sitemaps_listed_in_the_live_index(monkeypatch):
+    requested_urls = []
+
+    def fake_get(url, *args, **kwargs):
+        requested_urls.append(url)
+        return _fake_response((FIXTURES_DIR / "tds_sitemap.xml").read_text())
+
+    monkeypatch.setattr(news_data_pull.requests, "get", fake_get)
+
+    news_data_pull.fetch_tds_articles(cutoff=date(2026, 9, 1))
+
+    assert requested_urls == [
+        "https://www.tenancydepositscheme.com/sitemap-webarticle-1.xml",
+    ]
+
+
 def test_fetch_tds_articles_excludes_articles_published_before_the_cutoff(monkeypatch):
     xml = (FIXTURES_DIR / "tds_sitemap.xml").read_text()
     monkeypatch.setattr(news_data_pull.requests, "get", lambda *a, **k: _fake_response(xml))
