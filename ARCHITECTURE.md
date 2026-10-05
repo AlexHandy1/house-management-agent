@@ -20,6 +20,8 @@ Points to ADRs/specs for full reasoning rather than restating it.
   resolution (`services/db_connection.py`, used by both the Service and
   the news feed Job below). `pytest` for tests, with an `eval` marker
   (real LLM calls, see ADR-003) separating them from the default fast run.
+  DB-backed tests need the local Postgres from the repo-root
+  `docker-compose.yml` (`docker compose up -d`; setup in `README.md`).
   In production, also serves the frontend's built static files
   (`fastapi.staticfiles`) from a single Docker image/Cloud Run service —
   there is no separate frontend server in production. Genuine full-stack
