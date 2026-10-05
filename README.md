@@ -13,6 +13,22 @@ See:
 - `prototypes/` — throwaway loop experiments (`prototypes/README.md`), not production code
 - `app/backend`, `app/frontend`, `infra/` — the production app and its infrastructure
 
+## Running the tests locally
+
+The backend tests need a local Postgres 15 (the same major version as production and CI).
+From the repo root:
+
+```bash
+docker compose up -d                       # starts Postgres on localhost:5432
+cd app/backend
+python -m venv venv && source venv/bin/activate
+pip install -r requirements.txt pytest
+python -m pytest tests                     # unit tests; eval tests need real API keys
+```
+
+The test fixtures create and reset a separate `house_mgmt_test` database on that instance.
+Without `docker compose up -d` the DB-backed tests fail with connection errors.
+
 ## Status
 
 The maintenance agent is live: report an issue, and the agent researches real UK repair
