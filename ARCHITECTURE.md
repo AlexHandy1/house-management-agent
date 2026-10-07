@@ -10,9 +10,16 @@ Points to ADRs/specs for full reasoning rather than restating it.
   the agent's outcome (its full research findings and any contractors
   found, not just the headline cost), plus a table of previously saved
   issues loaded on mount and refreshed after each submit, with a
-  Contractor Y/N column. A right-hand column shows the latest news feed
-  articles (`GET /api/news-feed`), fetched once on mount. `vitest` +
-  `@testing-library/react` for tests.
+  Contractor Y/N column. `ConversationPanel` (`src/ConversationPanel.tsx`)
+  sits below it: an issue dropdown, a ChatGPT-style thread view grouped by
+  `turn_number` (only the user step and the final assistant reply render as
+  bubbles — tool-call/tool-result steps never do), a message input with a
+  live X/10 counter, a "Thinking…" status while a turn is pending, and a
+  closed state at the cap. A fresh `POST /api/issue` auto-opens its
+  conversation via the `conversation_id` already in that response, rather
+  than requiring the dropdown to find it. A right-hand column shows the
+  latest news feed articles (`GET /api/news-feed`), fetched once on mount.
+  `vitest` + `@testing-library/react` for tests.
 - **`app/backend`** — FastAPI. Routers (`routers/`) handle HTTP; services
   (`services/`) hold the actual logic — the agent loop (`services/agent.py`),
   the issues database layer (`services/issues_db.py`), rate limiting,
@@ -30,7 +37,9 @@ Points to ADRs/specs for full reasoning rather than restating it.
   `app/tests/` — costs money and hits real external sites; run explicitly
   (`pytest -m e2e app/tests -s`), never in CI.
 - **The maintenance agent** (`app/backend/services/agent.py`) —
-  `run_agent()`: a ReAct loop (OpenRouter, Mercury 2.5) with five tools —
+  `run_agent()`: a ReAct loop (OpenRouter, DeepSeek V4.1 Flash — switched
+  from Mercury 2.5 after Mercury started getting rate limited) with five
+  tools —
   `research_cost`/`find_contractors` (web-search sub-calls),
   `save_cost_estimate`/`save_contractors` (independent — either, both, or
   neither, based on what the request actually asks for), and
@@ -66,6 +75,29 @@ Points to ADRs/specs for full reasoning rather than restating it.
   reasoning, sources, and why this exact friction is expected to recur as
   agent functionality grows, likely forcing a wider refactor (a shared loop
   runner) once a third structurally-different workflow shape appears.
+  Four tools: `lookup_issue` (new — the issue row, its estimate, its
+  contractors, and the full step history of every conversation on it;
+  always called first per the system prompt, since context reaches this
+  loop through tools, not the system prompt), `research_cost` (reused from
+  `agent.py`, for "go deeper"/compare questions — informs, never revises
+  the saved estimate, since no `save_cost_estimate`-equivalent tool exists
+  here), and `find_contractors`/`save_contractors` (also reused verbatim
+  from `agent.py`'s tool contract — only the commit handler differs,
+  binding to `issues_db.add_contractors_to_issue()`, which adds to an
+  already-saved issue's contractors without touching its `issues` row,
+  instead of `issues_db.save()`'s full-issue-insert path). Traced as one
+  Langfuse span per turn (`run_conversation_turn`, nesting every model/tool
+  call it makes, mirroring `run_agent`'s single span), tagged with
+  `conversation_id`/`turn_number`; `session_id=conversation_id` chains a
+  conversation's turns together in Langfuse's session view. Reachable via
+  `routers/conversations.py`: `GET /api/issues/{issue_id}/conversations`
+  (list), `GET /api/conversations/{conversation_id}` (read one, with its
+  steps), `POST /api/conversations/{conversation_id}/messages` (post a
+  message — rate-limited like `POST /api/issue`, since it also makes real
+  paid LLM/web-search calls; a `ConversationCapReached` maps to HTTP 409).
+  `issue_id` is always derived from the conversation's own row, never
+  accepted from the client, so a request can't act on a mismatched
+  issue/conversation pair.
 - **The issues database** — Postgres on a dedicated, free-tier Compute
   Engine VM, reachable only over a private VPC (see the network diagram
   below). `services/issues_db.py`: `init_schema()` (run once, on app
@@ -151,7 +183,14 @@ Points to ADRs/specs for full reasoning rather than restating it.
    latest 10 articles, newest first — read-only; nothing in the Service
    ever writes to the `articles` table, only the news feed Job (see
    Components above) does.
-5. Reaching the issues database: Cloud Run has Direct VPC egress into a
+5. `POST /api/conversations/{id}/messages` (also rate-limited) → bounded
+   follow-up Q&A on an already-submitted issue via `conversation_agent.
+   run_conversation_turn()` (see the conversation agent bullet above) —
+   not limited to the triage step's fixed outcomes; the person can ask
+   anything about the saved context. `GET /api/issues/{issue_id}/conversations`
+   and `GET /api/conversations/{conversation_id}` support discovering and
+   resuming a conversation from the issues table.
+6. Reaching the issues database: Cloud Run has Direct VPC egress into a
    dedicated private subnet: see the network diagram below.
 
 ## Network (Cloud Run ↔ issues database)
