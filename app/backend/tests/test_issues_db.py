@@ -171,6 +171,61 @@ def test_an_eleventh_user_turn_is_rejected_by_the_conversation_cap(database_url)
         issues_db.append_turn(conversation["id"], role="user", content="one too many")
 
 
+def test_get_issue_returns_the_issue_row(database_url):
+    saved = issues_db.save("The kitchen tap is dripping", AgentOutcome(status="done"))
+
+    issue = issues_db.get_issue(saved["id"])
+
+    assert issue["source_text"] == "The kitchen tap is dripping"
+
+
+def test_list_contractors_for_issue_returns_its_linked_contractors(database_url):
+    issue = issues_db.save(
+        "The boiler is leaking",
+        AgentOutcome(
+            status="done",
+            contractors=[
+                ContractorResult(name="Test Plumbing Co", trade="plumbing/heating"),
+                ContractorResult(name="Sample Heating Ltd", trade="plumbing/heating"),
+            ],
+        ),
+    )
+
+    contractors = issues_db.list_contractors_for_issue(issue["id"])
+
+    assert {c["name"] for c in contractors} == {"Test Plumbing Co", "Sample Heating Ltd"}
+
+
+def test_list_conversations_for_issue_includes_each_conversations_turns(database_url):
+    issue = issues_db.save("The kitchen tap is dripping", AgentOutcome(status="done"))
+    first = issues_db.create_conversation(issue["id"])
+    second = issues_db.create_conversation(issue["id"])
+    issues_db.append_turn(first["id"], role="user", content="Why that estimate?")
+    issues_db.append_turn(second["id"], role="user", content="Find me more contractors")
+
+    conversations = issues_db.list_conversations_for_issue(issue["id"])
+
+    assert [c["id"] for c in conversations] == [first["id"], second["id"]]
+    assert [turn["content"] for turn in conversations[0]["turns"]] == ["Why that estimate?"]
+    assert [turn["content"] for turn in conversations[1]["turns"]] == ["Find me more contractors"]
+
+
+def test_lookup_issue_composes_the_issue_contractors_and_conversations(database_url):
+    issue = issues_db.save(
+        "The boiler is leaking",
+        AgentOutcome(status="done", contractors=[ContractorResult(name="Test Plumbing Co")]),
+    )
+    conversation = issues_db.create_conversation(issue["id"])
+    issues_db.append_turn(conversation["id"], role="user", content="Why that estimate?")
+
+    result = issues_db.lookup_issue(issue["id"])
+
+    assert result["issue"]["id"] == issue["id"]
+    assert [c["name"] for c in result["contractors"]] == ["Test Plumbing Co"]
+    assert [c["id"] for c in result["conversations"]] == [conversation["id"]]
+    assert result["conversations"][0]["turns"][0]["content"] == "Why that estimate?"
+
+
 def test_issues_are_listed_newest_first(database_url):
     for text in ["first issue", "second issue", "third issue"]:
         issues_db.save(text, AgentOutcome(status="failed"))

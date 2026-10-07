@@ -206,6 +206,45 @@ def get_conversation_turns(conversation_id: int) -> list[dict[str, Any]]:
         ).fetchall()
 
 
+def get_issue(issue_id: int) -> dict[str, Any] | None:
+    with psycopg.connect(get_database_url(), row_factory=dict_row) as conn:
+        return conn.execute("SELECT * FROM issues WHERE id = %s", (issue_id,)).fetchone()
+
+
+def lookup_issue(issue_id: int) -> dict[str, Any]:
+    """Everything a conversation agent needs about an issue: the issue row, its
+    linked contractors, and the full turn history of every prior conversation on it."""
+    return {
+        "issue": get_issue(issue_id),
+        "contractors": list_contractors_for_issue(issue_id),
+        "conversations": list_conversations_for_issue(issue_id),
+    }
+
+
+def list_conversations_for_issue(issue_id: int) -> list[dict[str, Any]]:
+    with psycopg.connect(get_database_url(), row_factory=dict_row) as conn:
+        conversations = conn.execute(
+            "SELECT * FROM conversations WHERE issue_id = %s ORDER BY created_at, id",
+            (issue_id,),
+        ).fetchall()
+    for conversation in conversations:
+        conversation["turns"] = get_conversation_turns(conversation["id"])
+    return conversations
+
+
+def list_contractors_for_issue(issue_id: int) -> list[dict[str, Any]]:
+    with psycopg.connect(get_database_url(), row_factory=dict_row) as conn:
+        return conn.execute(
+            """
+            SELECT contractors.*
+            FROM contractors
+            JOIN issue_contractors ON issue_contractors.contractor_id = contractors.id
+            WHERE issue_contractors.issue_id = %s
+            """,
+            (issue_id,),
+        ).fetchall()
+
+
 def list_issues() -> list[dict[str, Any]]:
     with psycopg.connect(get_database_url(), row_factory=dict_row) as conn:
         return conn.execute(
