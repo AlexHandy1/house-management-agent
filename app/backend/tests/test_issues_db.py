@@ -3,6 +3,7 @@ import os
 from decimal import Decimal
 
 import psycopg
+import pytest
 
 from models.agent_outcome import AgentOutcome, ContractorResult
 from services import issues_db
@@ -127,6 +128,47 @@ def test_the_same_contractor_can_be_linked_to_more_than_one_issue_without_duplic
     boiler_issue, hot_water_issue = sorted(issues_db.list_issues(), key=lambda i: i["id"])
     assert boiler_issue["has_contractor"] is True
     assert hot_water_issue["has_contractor"] is True
+
+
+def test_a_created_conversation_is_linked_to_its_issue(database_url):
+    issue = issues_db.save("The kitchen tap is dripping", AgentOutcome(status="done"))
+
+    conversation = issues_db.create_conversation(issue["id"])
+
+    assert conversation["issue_id"] == issue["id"]
+
+
+def test_appended_turns_are_retrievable_in_order(database_url):
+    issue = issues_db.save("The kitchen tap is dripping", AgentOutcome(status="done"))
+    conversation = issues_db.create_conversation(issue["id"])
+
+    issues_db.append_turn(conversation["id"], role="user", content="Why that estimate?")
+    issues_db.append_turn(
+        conversation["id"],
+        role="assistant",
+        content=None,
+        tool_calls=[{"id": "call_1", "type": "function", "function": {"name": "lookup_issue"}}],
+    )
+    issues_db.append_turn(
+        conversation["id"], role="tool", content="issue details...", tool_call_id="call_1"
+    )
+
+    turns = issues_db.get_conversation_turns(conversation["id"])
+    assert [turn["role"] for turn in turns] == ["user", "assistant", "tool"]
+    assert turns[0]["content"] == "Why that estimate?"
+    assert turns[1]["tool_calls"][0]["function"]["name"] == "lookup_issue"
+    assert turns[2]["tool_call_id"] == "call_1"
+
+
+def test_an_eleventh_user_turn_is_rejected_by_the_conversation_cap(database_url):
+    issue = issues_db.save("The kitchen tap is dripping", AgentOutcome(status="done"))
+    conversation = issues_db.create_conversation(issue["id"])
+
+    for i in range(10):
+        issues_db.append_turn(conversation["id"], role="user", content=f"message {i}")
+
+    with pytest.raises(issues_db.ConversationCapReached):
+        issues_db.append_turn(conversation["id"], role="user", content="one too many")
 
 
 def test_issues_are_listed_newest_first(database_url):

@@ -50,7 +50,10 @@ def database_url(monkeypatch):
     monkeypatch.setenv("DATABASE_URL", url)
     issues_db.init_schema()
     with psycopg.connect(url) as conn:
-        conn.execute("TRUNCATE issues, contractors, issue_contractors RESTART IDENTITY CASCADE")
+        conn.execute(
+            "TRUNCATE issues, contractors, issue_contractors, conversations, "
+            "conversation_turns RESTART IDENTITY CASCADE"
+        )
     return url
 
 

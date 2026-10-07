@@ -46,6 +46,20 @@ CREATE TABLE IF NOT EXISTS issue_contractors (
   contractor_id  bigint      NOT NULL REFERENCES contractors(id),
   created_at     timestamptz NOT NULL DEFAULT now(),
   UNIQUE (issue_id, contractor_id)
+);
+CREATE TABLE IF NOT EXISTS conversations (
+  id          bigserial PRIMARY KEY,
+  issue_id    bigint      NOT NULL REFERENCES issues(id),
+  created_at  timestamptz NOT NULL DEFAULT now()
+);
+CREATE TABLE IF NOT EXISTS conversation_turns (
+  id               bigserial PRIMARY KEY,
+  conversation_id  bigint      NOT NULL REFERENCES conversations(id),
+  role             text        NOT NULL CHECK (role IN ('user', 'assistant', 'tool')),
+  content          text,
+  tool_calls       jsonb,
+  tool_call_id     text,
+  created_at       timestamptz NOT NULL DEFAULT now()
 )
 """
 
@@ -123,6 +137,73 @@ def _find_or_create_contractor(
     ).fetchone()
     assert created is not None
     return created["id"]
+
+
+MAX_USER_TURNS_PER_CONVERSATION = 10
+
+
+class ConversationCapReached(Exception):
+    """Raised when a conversation already has MAX_USER_TURNS_PER_CONVERSATION user turns."""
+
+
+def create_conversation(issue_id: int) -> dict[str, Any]:
+    with psycopg.connect(get_database_url(), row_factory=dict_row) as conn:
+        row = conn.execute(
+            "INSERT INTO conversations (issue_id) VALUES (%s) RETURNING *", (issue_id,)
+        ).fetchone()
+        assert row is not None
+        return row
+
+
+def append_turn(
+    conversation_id: int,
+    role: str,
+    content: str | None,
+    tool_calls: list[dict[str, Any]] | None = None,
+    tool_call_id: str | None = None,
+) -> dict[str, Any]:
+    with psycopg.connect(get_database_url(), row_factory=dict_row) as conn:
+        if role == "user":
+            count_row = conn.execute(
+                "SELECT COUNT(*) AS count FROM conversation_turns "
+                "WHERE conversation_id = %s AND role = 'user'",
+                (conversation_id,),
+            ).fetchone()
+            assert count_row is not None
+            if count_row["count"] >= MAX_USER_TURNS_PER_CONVERSATION:
+                raise ConversationCapReached(
+                    f"Conversation {conversation_id} already has "
+                    f"{MAX_USER_TURNS_PER_CONVERSATION} user turns"
+                )
+        row = conn.execute(
+            """
+            INSERT INTO conversation_turns
+                (conversation_id, role, content, tool_calls, tool_call_id)
+            VALUES (%s, %s, %s, %s, %s)
+            RETURNING *
+            """,
+            (
+                conversation_id,
+                role,
+                content,
+                Jsonb(tool_calls) if tool_calls is not None else None,
+                tool_call_id,
+            ),
+        ).fetchone()
+        assert row is not None
+        return row
+
+
+def get_conversation_turns(conversation_id: int) -> list[dict[str, Any]]:
+    with psycopg.connect(get_database_url(), row_factory=dict_row) as conn:
+        return conn.execute(
+            """
+            SELECT * FROM conversation_turns
+            WHERE conversation_id = %s
+            ORDER BY created_at, id
+            """,
+            (conversation_id,),
+        ).fetchall()
 
 
 def list_issues() -> list[dict[str, Any]]:
