@@ -79,16 +79,56 @@ flow, there is no single outcome object this loop is contractually obligated to 
   accepted duplication, not oversight — see "Common Rationalizations" in
   `documentation-and-adrs`: the alternative (one function serving two incompatible contracts)
   is worse than a few lines of shared shape.
-- **This will recur.** Any future feature that adds a third fundamentally different workflow
-  shape to the agent (a different termination rule, a different "what must be true when the
-  run ends" invariant) raises the same question again, and at three shapes the "duplicated
-  loop skeleton across N files" cost starts to outweigh the "no cross-contaminated invariants"
-  benefit. At that point, extracting a shared loop runner parameterized by tool list +
-  termination predicate (the second alternative above, rejected for now) should be
-  reconsidered — not as a correction of this decision, but as the point where the trade-off
-  tips the other way. Flag this ADR when that happens rather than re-deriving the reasoning
-  from scratch.
 - Tool *implementations* (the web-search sub-calls) are shared via direct import from `agent.py`
   into `conversation_agent.py`; only the orchestration loop and system prompt are duplicated,
   not the underlying capability — see ARCHITECTURE.md's conversation agent section for the
   current tool-reuse map as it's built out across build steps 4-5.
+
+### This is a trade-off we will hit again, by design, not a one-off call
+This decision only holds because there are exactly two workflow shapes right now. **Each time
+agent functionality grows a workflow shape that doesn't fit either existing invariant — a
+different termination rule, a different "what must be true when the run ends" contract — this
+same friction resurfaces**, and the honest fix each time is another small, separate loop, not
+bending `run_agent()` or `conversation_agent()` to also cover it. That is sustainable for a
+little while and then stops being sustainable: at some number of shapes (three is a reasonable
+guess, not a hard rule), the cost of N near-identical duplicated loop skeletons overtakes the
+cost of a shared loop runner parameterized by tool list + termination predicate (the second
+alternative above, deliberately rejected here as premature). This ADR is the marker for that
+future moment — when a third structurally-different shape shows up, that is the point to
+revisit the rejected generic-runner alternative, not a sign this decision was wrong. The
+likely trigger is a wider agent refactor once the number of distinct run-termination contracts
+stops being "two, cleanly separable."
+
+## Industry context
+This two-loops-not-one shape, and the layering it depends on (orchestration/control-flow kept
+separate from reusable tool implementations), matches how the major agent frameworks already
+draw this line, rather than being a one-off choice for this codebase:
+
+- **Thread/Run separation.** OpenAI's Assistants API (and its Responses/Conversations API
+  successor) models a conversation as a persistent Thread plus discrete Runs executed against
+  it — creating a thread and executing one run are already two different operations in that
+  API, the same split this ADR draws between `create_conversation` and
+  `run_conversation_turn`. ([Jacar.es: OpenAI Assistants API — stateful agents without your own
+  infrastructure](https://jacar.es/en/openai-assistants-api-stateful-agents-without-your-own-infrastructure/))
+- **Tools as a layer separate from the orchestrator.** LangChain explicitly separates tools
+  (standalone, reusable callables) from the Agent Executor (the loop runtime that calls the
+  model, dispatches tool calls, and feeds observations back) specifically so the same tools can
+  be shared across different agents and different orchestration loops — the same reasoning
+  behind reusing `agent.py`'s `research_cost`/`find_contractors` sub-calls from
+  `conversation_agent.py` rather than reimplementing them.
+  ([growwstacks.com: LangChain production guide — AI agents, ReAct, tools](https://growwstacks.com/blog/langchain-production-guide-ai-agents-react-tools))
+- **Cognition/control kept separate from tool execution, and why conflating them is flagged as
+  a real risk, not a style preference.** Broader agentic-architecture writing frames this as a
+  control layer (planner/policy logic, state machines, termination rules) versus a tool layer
+  (fetching data, executing actions) — and warns that a system needs these kept as genuinely
+  separate layers because conflating them "collapses the audit trail that makes the agentic
+  engine verifiable." That is the same failure mode this ADR avoids: a single function carrying
+  two different termination contracts is harder to reason about and verify than two small ones.
+  ([blog.vectorize.io: Designing Agentic AI Systems, Part 1 — Agent Architectures](https://blog.vectorize.io/designing-agentic-ai-systems-part-1-agent-architectures))
+- **Shared tool libraries as the fix for duplicated capabilities across agents.** Where
+  platforms built on top of OpenAI's function-calling primitive hit this exact N-agents/one-tool
+  problem, the documented fix is a shared tools library ("define a tool once and reuse it
+  across all your assistants") rather than each assistant re-implementing the same capability —
+  reinforcing that tool reuse across loops, not loop reuse across tools, is the conventional
+  direction to resolve this friction.
+  ([developers.telnyx.com: Tools Library](https://developers.telnyx.com/docs/inference/ai-assistants/tools-library))

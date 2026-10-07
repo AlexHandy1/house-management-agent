@@ -60,9 +60,12 @@ Points to ADRs/specs for full reasoning rather than restating it.
   from `agent.py` — and reuse tool *implementations* (the
   `research_cost`/`find_contractors` web-search sub-calls) directly from
   `agent.py` rather than duplicating them; only the loop/termination/prompt
-  shape is duplicated, by design. See ADR-007 for the full reasoning,
-  including why this is expected to need revisiting (a shared loop runner)
-  once a third structurally-different agent workflow shape appears.
+  shape is duplicated, by design. This mirrors how major agent frameworks
+  already draw this line (Assistant/Thread-vs-Run separation, tools kept
+  reusable apart from the orchestrator loop) — see ADR-007 for the full
+  reasoning, sources, and why this exact friction is expected to recur as
+  agent functionality grows, likely forcing a wider refactor (a shared loop
+  runner) once a third structurally-different workflow shape appears.
 - **The issues database** — Postgres on a dedicated, free-tier Compute
   Engine VM, reachable only over a private VPC (see the network diagram
   below). `services/issues_db.py`: `init_schema()` (run once, on app
