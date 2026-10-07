@@ -6,7 +6,7 @@ from pydantic import BaseModel, Field
 
 from models.agent_outcome import AgentOutcome
 from services.agent import build_client, run_agent
-from services.issues_db import list_issues, save
+from services.issues_db import create_conversation, list_issues, save
 from services.rate_limiter import limiter
 
 logger = logging.getLogger(__name__)
@@ -18,11 +18,24 @@ class IssueRequest(BaseModel):
     issue_text: str = Field(min_length=1, max_length=2000)
 
 
-@router.post("/api/issue", response_model=AgentOutcome)
+class IssueResponse(AgentOutcome):
+    conversation_id: int
+
+
+@router.post("/api/issue", response_model=IssueResponse)
 @limiter.limit("10/minute")
-def submit_issue(request: Request, issue: IssueRequest) -> AgentOutcome:
+def submit_issue(request: Request, issue: IssueRequest) -> IssueResponse:
     logger.info("Issue submitted")
-    return run_agent(issue.issue_text, build_client(), save=save)
+    saved_issue: dict[str, Any] = {}
+
+    def save_and_capture(source_text: str, outcome: AgentOutcome) -> Any:
+        row = save(source_text, outcome)
+        saved_issue.update(row)
+        return row
+
+    outcome = run_agent(issue.issue_text, build_client(), save=save_and_capture)
+    conversation = create_conversation(saved_issue["id"])
+    return IssueResponse(**outcome.model_dump(), conversation_id=conversation["id"])
 
 
 @router.get("/api/issues")
