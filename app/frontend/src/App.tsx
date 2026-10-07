@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import ConversationPanel from './ConversationPanel'
 
 const MAX_ISSUE_TEXT_LENGTH = 2000
 
@@ -21,6 +22,8 @@ type AgentOutcome = {
   contractors: Contractor[]
 }
 
+type IssueApiResponse = AgentOutcome & { conversation_id: number }
+
 type Article = {
   source: string
   title: string
@@ -29,7 +32,7 @@ type Article = {
   summary: string | null
 }
 
-type Issue = {
+export type Issue = {
   id: number
   source_text: string
   status: 'done' | 'needs_info' | 'failed'
@@ -53,6 +56,7 @@ function App() {
   const [submitState, setSubmitState] = useState<SubmitState>({ kind: 'idle' })
   const [issues, setIssues] = useState<Issue[]>([])
   const [articles, setArticles] = useState<Article[]>([])
+  const [openConversationId, setOpenConversationId] = useState<number | null>(null)
 
   async function loadIssues() {
     const result = await fetch('/api/issues')
@@ -84,8 +88,9 @@ function App() {
         setSubmitState({ kind: 'error' })
         return
       }
-      const outcome: AgentOutcome = await result.json()
+      const outcome: IssueApiResponse = await result.json()
       setSubmitState({ kind: 'outcome', outcome })
+      setOpenConversationId(outcome.conversation_id)
       await loadIssues()
     } catch {
       setSubmitState({ kind: 'error' })
@@ -100,7 +105,7 @@ function App() {
       <div className="layout">
         <section>
           <form className="issue-form" onSubmit={handleSubmit}>
-            <label htmlFor="issue-text">Describe the issue</label>
+            <label htmlFor="issue-text">Submit a new issue</label>
             <textarea
               id="issue-text"
               value={issueText}
@@ -113,6 +118,7 @@ function App() {
             </button>
           </form>
           <SubmitResult state={submitState} />
+          <ConversationPanel issues={issues} openConversationId={openConversationId} />
           <IssuesTable issues={issues} />
         </section>
         <section>
@@ -171,34 +177,34 @@ function IssuesTable({ issues }: { issues: Issue[] }) {
     return null
   }
   return (
-    <table>
-      <thead>
-        <tr>
-          <th>Date</th>
-          <th>Issue</th>
-          <th>Status</th>
-          <th>Estimate</th>
-          <th>Sources</th>
-          <th>Contractor</th>
-        </tr>
-      </thead>
-      <tbody>
-        {issues.map((issue) => (
-          <tr key={issue.id}>
-            <td>{new Date(issue.created_at).toLocaleDateString()}</td>
-            <td>{issue.source_text.slice(0, 60)}</td>
-            <td>{issue.status}</td>
-            <td>
-              {issue.cost_best
-                ? `£${issue.cost_best} (£${issue.cost_low}–£${issue.cost_high})`
-                : '—'}
-            </td>
-            <td>{issue.supporting_web_sources.length}</td>
-            <td>{issue.has_contractor ? 'Y' : 'N'}</td>
+    <div className="issues-table-card">
+      <table>
+        <thead>
+          <tr>
+            <th>Date</th>
+            <th>Issue</th>
+            <th>Status</th>
+            <th>Estimate</th>
+            <th>Contractor</th>
           </tr>
-        ))}
-      </tbody>
-    </table>
+        </thead>
+        <tbody>
+          {issues.map((issue) => (
+            <tr key={issue.id}>
+              <td>{new Date(issue.created_at).toLocaleDateString()}</td>
+              <td>{issue.source_text.slice(0, 60)}</td>
+              <td>{issue.status}</td>
+              <td>
+                {issue.cost_best
+                  ? `£${issue.cost_best} (£${issue.cost_low}–£${issue.cost_high})`
+                  : '—'}
+              </td>
+              <td>{issue.has_contractor ? 'Y' : 'N'}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   )
 }
 

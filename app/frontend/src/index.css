@@ -158,6 +158,145 @@ h1 {
   padding: 4px 0;
 }
 
+.issues-table-card {
+  margin-top: 24px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--accent);
+  background: var(--surface);
+  overflow: hidden;
+}
+
+.issues-table-card table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.issues-table-card th,
+.issues-table-card td {
+  padding: 12px 16px;
+  text-align: left;
+}
+
+.issues-table-card thead th {
+  color: var(--text-h);
+  font-weight: 600;
+  font-size: 13px;
+  border-bottom: 1px solid var(--border);
+}
+
+.issues-table-card tbody tr:not(:last-child) td {
+  border-bottom: 1px solid var(--border);
+}
+
+.conversation-panel {
+  margin-top: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.conversation-panel > label {
+  font-weight: 600;
+  color: var(--text-h);
+}
+
+.conversation-panel select {
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text-h);
+  font: inherit;
+}
+
+.conversation-thread {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 16px 20px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+}
+
+.conversation-turn {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.conversation-message {
+  margin: 0;
+  padding: 10px 14px;
+  border-radius: 10px;
+  max-width: 80%;
+}
+
+.conversation-message.user {
+  align-self: flex-end;
+  background: var(--accent);
+  color: var(--accent-text);
+}
+
+.conversation-message.assistant {
+  align-self: flex-start;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  color: var(--text-h);
+}
+
+.conversation-status {
+  margin: 0;
+  font-size: 14px;
+  font-style: italic;
+  color: var(--text);
+}
+
+.conversation-closed {
+  font-style: normal;
+  color: var(--error);
+}
+
+.conversation-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.conversation-form textarea {
+  min-height: 60px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--text-h);
+  font: inherit;
+  resize: vertical;
+}
+
+.conversation-form button {
+  align-self: flex-start;
+  padding: 8px 18px;
+  border: none;
+  border-radius: 8px;
+  background: var(--accent);
+  color: var(--accent-text);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.conversation-form button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.conversation-counter {
+  font-size: 13px;
+  color: var(--text);
+}
+
 .news-feed h2 {
   font-size: 20px;
   font-weight: 600;
