@@ -1,5 +1,6 @@
 import json
 
+from langfuse import get_client, propagate_attributes
 from openai import OpenAI
 from openai.types.chat import (
     ChatCompletionFunctionToolParam,
@@ -68,10 +69,31 @@ def run_conversation_turn(
     """Appends the user's message (enforcing the conversation's cap), runs the model
     until it stops calling tools, persists the resulting steps, and returns the
     assistant's final reply text. Orchestration only — tool execution delegates to
-    the shared implementations in services.agent and services.issues_db (ADR-007)."""
-    issues_db.append_step(conversation_id, role="user", content=user_message)
+    the shared implementations in services.agent and services.issues_db (ADR-007).
+
+    Traced as one Langfuse span per turn (nesting every model/tool call made during
+    it, same mechanism as run_agent's single span), tagged with conversation_id and
+    turn_number so turns can be found individually; session_id=conversation_id chains
+    every turn's span together in Langfuse's session view (ADR-007 / step 7)."""
+    user_step = issues_db.append_step(conversation_id, role="user", content=user_message)
     messages = _build_messages(conversation_id)
 
+    langfuse = get_client()
+    with propagate_attributes(session_id=str(conversation_id)):
+        with langfuse.start_as_current_observation(
+            as_type="span",
+            name="run_conversation_turn",
+            input=user_message,
+            metadata={"conversation_id": conversation_id, "turn_number": user_step["turn_number"]},
+        ) as span:
+            reply = _run_loop(conversation_id, issue_id, messages, client)
+            span.update(output=reply)
+    return reply
+
+
+def _run_loop(
+    conversation_id: int, issue_id: int, messages: list[ChatCompletionMessageParam], client: OpenAI
+) -> str:
     for _ in range(MAX_ROUNDS):
         response = client.chat.completions.create(model=MODEL, tools=TOOLS, messages=messages)
         message = response.choices[0].message
