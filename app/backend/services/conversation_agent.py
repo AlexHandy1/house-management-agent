@@ -1,8 +1,10 @@
 import json
+from typing import Any, cast
 
 from langfuse import get_client, propagate_attributes
 from openai import OpenAI
 from openai.types.chat import (
+    ChatCompletionAssistantMessageParam,
     ChatCompletionFunctionToolParam,
     ChatCompletionMessageFunctionToolCallParam,
     ChatCompletionMessageParam,
@@ -79,21 +81,28 @@ def run_conversation_turn(
     messages = _build_messages(conversation_id)
 
     langfuse = get_client()
-    with propagate_attributes(session_id=str(conversation_id)):
-        with langfuse.start_as_current_observation(
+    with (
+        propagate_attributes(session_id=str(conversation_id)),
+        langfuse.start_as_current_observation(
             as_type="span",
             name="run_conversation_turn",
             input=user_message,
             metadata={"conversation_id": conversation_id, "turn_number": user_step["turn_number"]},
-        ) as span:
-            reply = _run_loop(conversation_id, issue_id, messages, client)
-            span.update(output=reply)
+        ) as span,
+    ):
+        reply = _run_loop(conversation_id, issue_id, messages, client)
+        span.update(output=reply)
     return reply
 
 
 def _run_loop(
     conversation_id: int, issue_id: int, messages: list[ChatCompletionMessageParam], client: OpenAI
 ) -> str:
+    # KNOWN GAP (security review, 7 Oct): unlike agent.py's _create_with_retry, there is no
+    # try/except here around the provider call. A transient provider error raises unhandled,
+    # and because the user's step is already persisted before this loop runs, the conversation
+    # is left with a dangling user turn with no reply. Accepted for now; fix before relying on
+    # this past the current single-owner usage pattern.
     for _ in range(MAX_ROUNDS):
         response = client.chat.completions.create(model=MODEL, tools=TOOLS, messages=messages)
         message = response.choices[0].message
@@ -120,9 +129,11 @@ def _run_loop(
                 content = json.dumps(issues_db.lookup_issue(issue_id), default=str)
             elif name == "research_cost":
                 issue = issues_db.get_issue(issue_id)
+                assert issue is not None
                 content = _research_cost(issue["source_text"], client)
             elif name == "find_contractors":
                 issue = issues_db.get_issue(issue_id)
+                assert issue is not None
                 content = _find_contractors(issue["source_text"], client)
             elif name == "save_contractors":
                 contractors = [ContractorResult(**c) for c in args.get("contractors", [])]
@@ -133,7 +144,10 @@ def _run_loop(
             results.append({"role": "tool", "tool_call_id": call.id, "content": content})
 
         issues_db.append_step(
-            conversation_id, role="assistant", content=message.content, tool_calls=requested
+            conversation_id,
+            role="assistant",
+            content=message.content,
+            tool_calls=cast(list[dict[str, Any]], requested),
         )
         messages.append(
             {"role": "assistant", "content": message.content or "", "tool_calls": requested}
@@ -142,7 +156,7 @@ def _run_loop(
             issues_db.append_step(
                 conversation_id,
                 role="tool",
-                content=result["content"],
+                content=cast(str, result["content"]),
                 tool_call_id=result["tool_call_id"],
             )
         messages.extend(results)
@@ -160,7 +174,7 @@ def _build_messages(conversation_id: int) -> list[ChatCompletionMessageParam]:
         if step["role"] == "user":
             messages.append({"role": "user", "content": step["content"]})
         elif step["role"] == "assistant":
-            message: ChatCompletionMessageParam = {
+            message: ChatCompletionAssistantMessageParam = {
                 "role": "assistant",
                 "content": step["content"] or "",
             }

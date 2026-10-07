@@ -188,7 +188,13 @@ def append_step(
     result) to a conversation. A step is one move within processing a turn; a turn is
     one user message plus everything the agent does in response to it. turn_number is
     derived here, not passed in: it's the count of user steps so far, incremented when
-    this step is itself a user step — the single source of truth the cap also reads."""
+    this step is itself a user step — the single source of truth the cap also reads.
+
+    KNOWN GAP (security review, 7 Oct): the cap check below is check-then-insert with no
+    row lock, so two concurrent requests to the same conversation_id near the boundary
+    can both pass the count check before either commits, landing slightly over the cap.
+    Accepted for now given the single-owner usage pattern; add a row lock (or a DB-level
+    constraint) if this ever needs to be airtight under concurrency."""
     with psycopg.connect(get_database_url(), row_factory=dict_row) as conn:
         count_row = conn.execute(
             "SELECT COUNT(*) AS count FROM conversation_steps "

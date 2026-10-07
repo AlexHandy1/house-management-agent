@@ -79,7 +79,7 @@ def test_explaining_the_estimate_references_the_saved_reasoning(database_url):
 
 @pytest.mark.eval
 def test_asking_for_the_previous_estimate_gets_the_right_figure_back(database_url):
-    issue, conversation, reply = _ask("How much was the previous cost estimate?")
+    _issue, conversation, reply = _ask("How much was the previous cost estimate?")
 
     assert reply
     assert _tool_was_called(conversation["id"], "lookup_issue")

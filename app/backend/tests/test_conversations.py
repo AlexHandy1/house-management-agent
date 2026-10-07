@@ -27,7 +27,7 @@ def test_listing_an_issues_conversations_returns_them_with_their_steps(database_
 
 
 def test_reading_a_conversation_returns_its_steps(database_url):
-    issue, conversation = _issue_with_conversation()
+    _issue, conversation = _issue_with_conversation()
     issues_db.append_step(conversation["id"], role="user", content="Why that estimate?")
 
     response = client.get(f"/api/conversations/{conversation['id']}")
@@ -81,7 +81,7 @@ def test_posting_a_message_to_an_unknown_conversation_returns_404(database_url, 
 
 
 def test_posting_a_message_is_rate_limited_per_ip(database_url, monkeypatch):
-    issue, conversation = _issue_with_conversation()
+    _issue, conversation = _issue_with_conversation()
 
     def fake_run_conversation_turn(conversation_id, issue_id, user_message, client):
         issues_db.append_step(conversation_id, role="user", content=user_message)
@@ -106,7 +106,7 @@ def test_posting_a_message_is_rate_limited_per_ip(database_url, monkeypatch):
 
 
 def test_posting_a_message_past_the_cap_returns_409(database_url, monkeypatch):
-    issue, conversation = _issue_with_conversation()
+    _issue, conversation = _issue_with_conversation()
 
     def raise_cap_reached(conversation_id, issue_id, user_message, client):
         raise issues_db.ConversationCapReached("cap reached")
