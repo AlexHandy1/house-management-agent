@@ -47,6 +47,22 @@ Points to ADRs/specs for full reasoning rather than restating it.
   ADR-005 for the contractors/agent-loop reasoning and
   `docs/specs/spec-architecture-research-cost-agent-and-issues-db-280926.md`
   for the original cost-estimate design and REQ-by-REQ status.
+- **The conversation agent** (`app/backend/services/conversation_agent.py`) —
+  a second, deliberately separate ReAct loop (`run_conversation_turn()`) for
+  bounded follow-up Q&A on an already-submitted issue, introduced by the
+  multi-turn conversation slice. It is not a mode of `run_agent()`: that
+  loop's invariant is "every run ends with exactly one `save_*` call," which
+  is incompatible with a conversational turn, where ending on plain text
+  with no tool call is the normal case, bounded only by the 10-user-turn
+  cap enforced at persistence (`issues_db.append_turn`'s
+  `ConversationCapReached`). The two loops share only what carries no
+  task-specific invariant — the model constant and traced client builder
+  from `agent.py` — and reuse tool *implementations* (the
+  `research_cost`/`find_contractors` web-search sub-calls) directly from
+  `agent.py` rather than duplicating them; only the loop/termination/prompt
+  shape is duplicated, by design. See ADR-007 for the full reasoning,
+  including why this is expected to need revisiting (a shared loop runner)
+  once a third structurally-different agent workflow shape appears.
 - **The issues database** — Postgres on a dedicated, free-tier Compute
   Engine VM, reachable only over a private VPC (see the network diagram
   below). `services/issues_db.py`: `init_schema()` (run once, on app
