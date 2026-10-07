@@ -1,6 +1,8 @@
 import logging
+import os
 from decimal import Decimal
 
+import psycopg
 from fastapi.testclient import TestClient
 
 import routers.issue as issue_router
@@ -11,7 +13,7 @@ from services import issues_db
 client = TestClient(app)
 
 
-def test_submitting_an_issue_returns_the_agents_outcome(monkeypatch):
+def test_submitting_an_issue_returns_the_agents_outcome(database_url, monkeypatch):
     outcome = AgentOutcome(
         status="done",
         cost_best=Decimal(225),
@@ -20,14 +22,19 @@ def test_submitting_an_issue_returns_the_agents_outcome(monkeypatch):
         sources=["https://example.com/a"],
         summary="Full breakdown of typical costs for a dripping tap...",
     )
-    monkeypatch.setattr(
-        issue_router, "run_agent", lambda issue_text, client, save: outcome
-    )
+
+    def fake_run_agent(issue_text, client, save):
+        save(issue_text, outcome)
+        return outcome
+
+    monkeypatch.setattr(issue_router, "run_agent", fake_run_agent)
 
     response = client.post("/api/issue", json={"issue_text": "The boiler is leaking"})
 
     assert response.status_code == 200
-    assert response.json() == {
+    body = response.json()
+    assert body.pop("conversation_id") is not None
+    assert body == {
         "status": "done",
         "cost_best": "225",
         "cost_low": "150",
@@ -39,7 +46,29 @@ def test_submitting_an_issue_returns_the_agents_outcome(monkeypatch):
     }
 
 
-def test_submitting_an_issue_returns_the_agents_contractor_picks(monkeypatch):
+def test_submitting_an_issue_creates_a_conversation_linked_to_the_saved_issue(
+    database_url, monkeypatch
+):
+    outcome = AgentOutcome(status="done")
+
+    def fake_run_agent(issue_text, client, save):
+        save(issue_text, outcome)
+        return outcome
+
+    monkeypatch.setattr(issue_router, "run_agent", fake_run_agent)
+
+    response = client.post("/api/issue", json={"issue_text": "The boiler is leaking"})
+
+    conversation_id = response.json()["conversation_id"]
+    [issue] = issues_db.list_issues()
+    with psycopg.connect(os.environ["DATABASE_URL"]) as conn:
+        [(linked_issue_id,)] = conn.execute(
+            "SELECT issue_id FROM conversations WHERE id = %s", (conversation_id,)
+        ).fetchall()
+    assert linked_issue_id == issue["id"]
+
+
+def test_submitting_an_issue_returns_the_agents_contractor_picks(database_url, monkeypatch):
     outcome = AgentOutcome(
         status="done",
         contractors=[
@@ -51,9 +80,12 @@ def test_submitting_an_issue_returns_the_agents_contractor_picks(monkeypatch):
             )
         ],
     )
-    monkeypatch.setattr(
-        issue_router, "run_agent", lambda issue_text, client, save: outcome
-    )
+
+    def fake_run_agent(issue_text, client, save):
+        save(issue_text, outcome)
+        return outcome
+
+    monkeypatch.setattr(issue_router, "run_agent", fake_run_agent)
 
     response = client.post("/api/issue", json={"issue_text": "The boiler is leaking"})
 
@@ -69,12 +101,13 @@ def test_submitting_an_issue_returns_the_agents_contractor_picks(monkeypatch):
     ]
 
 
-def test_submitting_an_issue_logs_that_the_route_was_triggered(monkeypatch, caplog):
-    monkeypatch.setattr(
-        issue_router,
-        "run_agent",
-        lambda issue_text, client, save: AgentOutcome(status="failed"),
-    )
+def test_submitting_an_issue_logs_that_the_route_was_triggered(database_url, monkeypatch, caplog):
+    def fake_run_agent(issue_text, client, save):
+        outcome = AgentOutcome(status="failed")
+        save(issue_text, outcome)
+        return outcome
+
+    monkeypatch.setattr(issue_router, "run_agent", fake_run_agent)
 
     with caplog.at_level(logging.INFO):
         client.post("/api/issue", json={"issue_text": "The boiler is leaking"})

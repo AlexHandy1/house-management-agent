@@ -21,7 +21,7 @@ from openai.types.chat import (
 
 from models.agent_outcome import AgentOutcome, ContractorResult
 
-MODEL = "inception/mercury-2.5"
+MODEL = "deepseek/deepseek-v4.1-flash-20260910"
 SECRET_ID = "OPENROUTER_API_KEY"
 MAX_ROUNDS = 10
 PROPERTY_YAML = Path(__file__).parent.parent / "config" / "property.yaml"

@@ -42,7 +42,7 @@ test('shows a thinking state while the agent researches costs, then a sourced co
   render(<App />)
 
   await user.type(
-    screen.getByLabelText(/describe the issue/i),
+    screen.getByLabelText(/submit a new issue/i),
     'The boiler is leaking'
   )
   await user.click(screen.getByRole('button', { name: /submit/i }))
@@ -98,7 +98,7 @@ test('shows the contractors the agent found alongside the cost estimate', async 
   const user = userEvent.setup()
   render(<App />)
 
-  await user.type(screen.getByLabelText(/describe the issue/i), 'The boiler is leaking')
+  await user.type(screen.getByLabelText(/submit a new issue/i), 'The boiler is leaking')
   await user.click(screen.getByRole('button', { name: /submit/i }))
 
   expect(await screen.findByText(/test plumbing co/i)).toBeInTheDocument()
@@ -134,7 +134,7 @@ test('shows contractors without a broken cost line when only contractors were as
   render(<App />)
 
   await user.type(
-    screen.getByLabelText(/describe the issue/i),
+    screen.getByLabelText(/submit a new issue/i),
     'Do we already have a contractor for the boiler?'
   )
   await user.click(screen.getByRole('button', { name: /submit/i }))
@@ -161,7 +161,7 @@ test('shows the clarifying question when the issue is too vague to cost', async 
   const user = userEvent.setup()
   render(<App />)
 
-  await user.type(screen.getByLabelText(/describe the issue/i), 'Something is broken')
+  await user.type(screen.getByLabelText(/submit a new issue/i), 'Something is broken')
   await user.click(screen.getByRole('button', { name: /submit/i }))
 
   expect(await screen.findByText(/which room is affected/i)).toBeInTheDocument()
@@ -185,7 +185,7 @@ test('shows an error state when the agent run fails', async () => {
   const user = userEvent.setup()
   render(<App />)
 
-  await user.type(screen.getByLabelText(/describe the issue/i), 'The tap drips')
+  await user.type(screen.getByLabelText(/submit a new issue/i), 'The tap drips')
   await user.click(screen.getByRole('button', { name: /submit/i }))
 
   expect(await screen.findByText(/something went wrong/i)).toBeInTheDocument()
@@ -196,7 +196,7 @@ test('shows an error state when the request to submit the issue fails outright',
   const user = userEvent.setup()
   render(<App />)
 
-  await user.type(screen.getByLabelText(/describe the issue/i), 'The tap drips')
+  await user.type(screen.getByLabelText(/submit a new issue/i), 'The tap drips')
   await user.click(screen.getByRole('button', { name: /submit/i }))
 
   expect(await screen.findByText(/something went wrong/i)).toBeInTheDocument()
@@ -258,7 +258,8 @@ test('loads previously saved issues on mount without submitting anything', async
 
   render(<App />)
 
-  expect(await screen.findByText(/the kitchen tap is dripping/i)).toBeInTheDocument()
+  const table = await screen.findByRole('table')
+  expect(within(table).getByText(/the kitchen tap is dripping/i)).toBeInTheDocument()
 })
 
 test('shows which issues have a linked contractor in the issues table', async () => {
@@ -342,17 +343,56 @@ test('refreshes the issues table with the newly saved issue after a submit', asy
 
   expect(screen.queryByRole('table')).not.toBeInTheDocument()
 
-  await user.type(screen.getByLabelText(/describe the issue/i), 'The boiler is leaking')
+  await user.type(screen.getByLabelText(/submit a new issue/i), 'The boiler is leaking')
   await user.click(screen.getByRole('button', { name: /submit/i }))
 
   const table = await screen.findByRole('table')
   expect(within(table).getByText(/the boiler is leaking/i)).toBeInTheDocument()
 })
 
+test('submitting an issue opens its conversation for immediate follow-up', async () => {
+  const fetchMock = vi.fn((url: string, options?: RequestInit) => {
+    if (options?.method === 'POST') {
+      return Promise.resolve({
+        ok: true,
+        json: async () => ({
+          status: 'done',
+          cost_best: '95',
+          cost_low: '70',
+          cost_high: '150',
+          sources: [],
+          clarifying_question: null,
+          summary: null,
+          contractors: [],
+          conversation_id: 7,
+        }),
+      })
+    }
+    if (url === '/api/conversations/7') {
+      return Promise.resolve({
+        ok: true,
+        json: async () => ({ id: 7, issue_id: 1, created_at: '2026-10-07T10:00:00Z', steps: [] }),
+      })
+    }
+    if (url === '/api/news-feed') {
+      return Promise.resolve({ ok: true, json: async () => [] })
+    }
+    return Promise.resolve({ ok: true, json: async () => [] })
+  })
+  vi.stubGlobal('fetch', fetchMock)
+  const user = userEvent.setup()
+  render(<App />)
+
+  await user.type(screen.getByLabelText(/submit a new issue/i), 'The boiler is leaking')
+  await user.click(screen.getByRole('button', { name: /submit/i }))
+
+  expect(await screen.findByLabelText(/your message/i)).toBeInTheDocument()
+})
+
 test('limits the issue description to 2000 characters', () => {
   render(<App />)
 
-  expect(screen.getByLabelText(/describe the issue/i)).toHaveAttribute(
+  expect(screen.getByLabelText(/submit a new issue/i)).toHaveAttribute(
     'maxLength',
     '2000'
   )

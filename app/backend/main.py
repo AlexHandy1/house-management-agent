@@ -11,6 +11,7 @@ from fastapi import FastAPI, Request
 from fastapi.staticfiles import StaticFiles
 from slowapi.errors import RateLimitExceeded
 
+from routers.conversations import router as conversations_router
 from routers.health import router as health_router
 from routers.issue import router as issue_router
 from routers.news_feed import router as news_feed_router
@@ -79,6 +80,7 @@ def create_app(static_dir: Path = DEFAULT_STATIC_DIR) -> FastAPI:
     app.include_router(health_router)
     app.include_router(issue_router)
     app.include_router(news_feed_router)
+    app.include_router(conversations_router)
     # Any future router must be included above this line — the static mount
     # matches every remaining path, so routes added after it are unreachable.
     if static_dir.is_dir():

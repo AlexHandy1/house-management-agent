@@ -105,6 +105,24 @@ Each step is one logical commit. Steps 1–3 are backend and testable without th
 - Context compaction or summarisation (the cap of 10 per conversation keeps this bounded).
 - Per-table least-privilege DB role (deferred, not rejected).
 - Full-article reading, unless open item 2 says it's worth it.
+- **Starting a second (or further) conversation on an issue that already has one.** The schema
+  and `lookup_issue` already support multiple conversations per issue (decided and built), but
+  step 6's endpoints only cover list/read/post-message for an *existing* conversation — there
+  is deliberately no `POST .../conversations` to open a new one on an issue that already has
+  one. Decided 2026-10-07, at step 6 (build session), parked rather than built: this is tied to
+  a larger undecided question — whether the system should become more general-purpose
+  (multiple parallel conversation threads per issue, closer to a chat product) or stay
+  intentionally narrow and workflow-specific (one bounded conversation per issue, relaxing the
+  10-turn cap first if more room is actually needed, before ever introducing a second thread).
+  That's a direction call for a future session, not a build-step detail — revisit before
+  building any "new conversation" entry point.
+- **Live-usage note, 2026-10-07 (after building the frontend, step 8):** the actual flow — submit
+  an issue, then separately select it again in a "Discuss an existing issue" dropdown below the
+  issues table to see its thread — feels disjointed in practice, not just in the abstract. Noted
+  as a real UX friction, not a blocker; accepted for now rather than redesigned mid-build.
+  Feeds the same open direction question above: a tighter, more contextual "continue this issue"
+  flow (vs. the current dropdown-driven re-selection) is itself a workflow-specific vs.
+  general-purpose call, and worth settling together rather than patching the UX in isolation.
 
 ## References
 
