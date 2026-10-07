@@ -54,9 +54,19 @@ Points to ADRs/specs for full reasoning rather than restating it.
   `contractors` and `issue_contractors` (a many-to-many join table) hold
   the agent's contractor picks — `save()` upserts a contractor by name and
   links it to the issue; `list_issues()` exposes a computed
-  `has_contractor` per issue. See ADR-004 for the hosting/network/
-  credential-resolution reasoning and ADR-005 for the contractors data
-  model.
+  `has_contractor` per issue. `conversations` and `conversation_turns`
+  (`create_conversation()`, `append_turn()`, `get_conversation_turns()`)
+  hold the per-issue follow-up conversations introduced in the multi-turn
+  slice — each conversation is FK-bound to one issue, and `append_turn`
+  enforces a 10-user-turn cap (`ConversationCapReached`). These tables live
+  in `issues_db.py` rather than a module of their own, unlike `articles`
+  (below): they have no independent lifecycle or populating process of
+  their own — they're part of an issue's own data graph, the same reason
+  `contractors`/`issue_contractors` live here instead of a separate
+  `contractors_table.py`. See ADR-004 for the hosting/network/
+  credential-resolution reasoning, ADR-005 for the contractors data model,
+  and `docs/specs/multi-turn-conversation-brief-spec-061026.md` for the
+  conversations design.
 - **The news feed** — `app/backend/jobs/pull_news_feed.py`, a Cloud Run Job
   (`infra/news_feed_job.tf`) triggered by Cloud Scheduler every 2 days, pulls
   NRLA (`services/news_data_pull.py`, server-rendered HTML) and Tenancy
