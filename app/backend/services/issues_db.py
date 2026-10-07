@@ -170,6 +170,13 @@ def create_conversation(issue_id: int) -> dict[str, Any]:
         return row
 
 
+def get_conversation(conversation_id: int) -> dict[str, Any] | None:
+    with psycopg.connect(get_database_url(), row_factory=dict_row) as conn:
+        return conn.execute(
+            "SELECT * FROM conversations WHERE id = %s", (conversation_id,)
+        ).fetchone()
+
+
 def append_step(
     conversation_id: int,
     role: str,

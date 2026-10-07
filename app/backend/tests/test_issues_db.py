@@ -163,6 +163,19 @@ def test_a_created_conversation_is_linked_to_its_issue(database_url):
     assert conversation["issue_id"] == issue["id"]
 
 
+def test_get_conversation_returns_the_conversation_row(database_url):
+    issue = issues_db.save("The kitchen tap is dripping", AgentOutcome(status="done"))
+    created = issues_db.create_conversation(issue["id"])
+
+    conversation = issues_db.get_conversation(created["id"])
+
+    assert conversation["issue_id"] == issue["id"]
+
+
+def test_get_conversation_returns_none_for_an_unknown_id(database_url):
+    assert issues_db.get_conversation(999) is None
+
+
 def test_appended_steps_are_retrievable_in_order_tagged_with_their_turn_number(database_url):
     issue = issues_db.save("The kitchen tap is dripping", AgentOutcome(status="done"))
     conversation = issues_db.create_conversation(issue["id"])
