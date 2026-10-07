@@ -116,6 +116,13 @@ Each step is one logical commit. Steps 1–3 are backend and testable without th
   10-turn cap first if more room is actually needed, before ever introducing a second thread).
   That's a direction call for a future session, not a build-step detail — revisit before
   building any "new conversation" entry point.
+- **Live-usage note, 2026-10-07 (after building the frontend, step 8):** the actual flow — submit
+  an issue, then separately select it again in a "Discuss an existing issue" dropdown below the
+  issues table to see its thread — feels disjointed in practice, not just in the abstract. Noted
+  as a real UX friction, not a blocker; accepted for now rather than redesigned mid-build.
+  Feeds the same open direction question above: a tighter, more contextual "continue this issue"
+  flow (vs. the current dropdown-driven re-selection) is itself a workflow-specific vs.
+  general-purpose call, and worth settling together rather than patching the UX in isolation.
 
 ## References
 
