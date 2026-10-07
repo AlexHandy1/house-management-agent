@@ -130,6 +130,31 @@ def test_the_same_contractor_can_be_linked_to_more_than_one_issue_without_duplic
     assert hot_water_issue["has_contractor"] is True
 
 
+def test_add_contractors_to_issue_links_them_without_touching_the_issue_row(database_url):
+    issue = issues_db.save("The boiler is leaking", AgentOutcome(status="done"))
+
+    issues_db.add_contractors_to_issue(
+        issue["id"], [ContractorResult(name="Test Plumbing Co", trade="plumbing/heating")]
+    )
+
+    contractors = issues_db.list_contractors_for_issue(issue["id"])
+    assert [c["name"] for c in contractors] == ["Test Plumbing Co"]
+    [refetched] = issues_db.list_issues()
+    assert refetched["source_text"] == "The boiler is leaking"
+
+
+def test_add_contractors_to_issue_is_additive_not_replacing(database_url):
+    issue = issues_db.save(
+        "The boiler is leaking",
+        AgentOutcome(status="done", contractors=[ContractorResult(name="Test Plumbing Co")]),
+    )
+
+    issues_db.add_contractors_to_issue(issue["id"], [ContractorResult(name="Sample Heating Ltd")])
+
+    contractors = issues_db.list_contractors_for_issue(issue["id"])
+    assert {c["name"] for c in contractors} == {"Test Plumbing Co", "Sample Heating Ltd"}
+
+
 def test_a_created_conversation_is_linked_to_its_issue(database_url):
     issue = issues_db.save("The kitchen tap is dripping", AgentOutcome(status="done"))
 

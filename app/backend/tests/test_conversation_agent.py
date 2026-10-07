@@ -4,7 +4,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from models.agent_outcome import AgentOutcome
+from models.agent_outcome import AgentOutcome, ContractorResult
 from services import conversation_agent, issues_db
 
 
@@ -103,6 +103,47 @@ def test_a_research_cost_tool_call_dispatches_to_the_shared_sub_call(database_ur
     # the sub-call was given the issue's own text, not the follow-up message
     sub_call_messages = llm.chat.completions.create.call_args_list[1].kwargs["messages"]
     assert "The kitchen tap is dripping" in sub_call_messages[0]["content"]
+
+
+def test_a_find_contractors_tool_call_adds_contractors_without_replacing_existing_ones(
+    database_url, monkeypatch
+):
+    issue = issues_db.save(
+        "The boiler is leaking",
+        AgentOutcome(status="done", contractors=[ContractorResult(name="Existing Plumbing Co")]),
+    )
+    conversation = issues_db.create_conversation(issue["id"])
+    monkeypatch.setattr(
+        "services.agent._property",
+        lambda: {"name": "1 Test St", "locality": "Testville", "city": "Testland",
+                 "country": "UK", "notes": ""},
+    )
+    llm = llm_replying_with(
+        tool_call_reply("find_contractors", {}),
+        text_reply("New Heating Ltd, 0000 000 0002, https://example.com/new-heating-ltd"),
+        tool_call_reply(
+            "save_contractors",
+            {
+                "contractors": [
+                    {
+                        "name": "New Heating Ltd",
+                        "trade": "heating",
+                        "source_url": "https://example.com/new-heating-ltd",
+                        "phone_number": "0000 000 0002",
+                    }
+                ]
+            },
+        ),
+        text_reply("I've added New Heating Ltd to your shortlist."),
+    )
+
+    reply = conversation_agent.run_conversation_turn(
+        conversation["id"], issue["id"], "Find me more contractors", llm
+    )
+
+    assert reply == "I've added New Heating Ltd to your shortlist."
+    contractors = issues_db.list_contractors_for_issue(issue["id"])
+    assert {c["name"] for c in contractors} == {"Existing Plumbing Co", "New Heating Ltd"}
 
 
 def test_a_turn_at_the_cap_is_rejected_without_calling_the_model(database_url):

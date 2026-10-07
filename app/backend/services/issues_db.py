@@ -91,16 +91,7 @@ def save(source_text: str, outcome: AgentOutcome) -> dict[str, Any]:
             ),
         ).fetchone()
         assert row is not None
-        for contractor in outcome.contractors:
-            contractor_id = _find_or_create_contractor(conn, contractor)
-            conn.execute(
-                """
-                INSERT INTO issue_contractors (issue_id, contractor_id)
-                VALUES (%s, %s)
-                ON CONFLICT (issue_id, contractor_id) DO NOTHING
-                """,
-                (row["id"], contractor_id),
-            )
+        _link_contractors(conn, row["id"], outcome.contractors)
     logger.info(
         "Issue saved",
         extra={
@@ -110,6 +101,29 @@ def save(source_text: str, outcome: AgentOutcome) -> dict[str, Any]:
         },
     )
     return row
+
+
+def add_contractors_to_issue(issue_id: int, contractors: list[ContractorResult]) -> None:
+    """Adds contractors to an already-saved issue — upsert by name, link via
+    issue_contractors, same as save() does for a brand-new issue. Never touches the
+    issues row itself and never removes an existing link; purely additive."""
+    with psycopg.connect(get_database_url(), row_factory=dict_row) as conn:
+        _link_contractors(conn, issue_id, contractors)
+
+
+def _link_contractors(
+    conn: psycopg.Connection[dict[str, Any]], issue_id: int, contractors: list[ContractorResult]
+) -> None:
+    for contractor in contractors:
+        contractor_id = _find_or_create_contractor(conn, contractor)
+        conn.execute(
+            """
+            INSERT INTO issue_contractors (issue_id, contractor_id)
+            VALUES (%s, %s)
+            ON CONFLICT (issue_id, contractor_id) DO NOTHING
+            """,
+            (issue_id, contractor_id),
+        )
 
 
 def _find_or_create_contractor(
