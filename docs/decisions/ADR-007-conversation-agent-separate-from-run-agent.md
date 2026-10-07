@@ -27,7 +27,7 @@ deterministic invariant the conversation task cannot share:
   tool call is the *normal*, expected way a turn ends — the model answered the question. There
   is no outcome object to finalize, no DB row the turn must end by writing. The conversation's
   own stopping point is "the model stopped calling tools," full stop, and the only hard
-  constraint is the 10-user-turn cap, enforced at persistence (`issues_db.append_turn`'s
+  constraint is the 10-user-turn cap, enforced at persistence (`issues_db.append_step`'s
   `ConversationCapReached`), not at the model-loop level.
 
 Reconciling these inside one function means branching, per call, on: which tool list applies,

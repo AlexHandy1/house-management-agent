@@ -138,26 +138,39 @@ def test_a_created_conversation_is_linked_to_its_issue(database_url):
     assert conversation["issue_id"] == issue["id"]
 
 
-def test_appended_turns_are_retrievable_in_order(database_url):
+def test_appended_steps_are_retrievable_in_order_tagged_with_their_turn_number(database_url):
     issue = issues_db.save("The kitchen tap is dripping", AgentOutcome(status="done"))
     conversation = issues_db.create_conversation(issue["id"])
 
-    issues_db.append_turn(conversation["id"], role="user", content="Why that estimate?")
-    issues_db.append_turn(
+    issues_db.append_step(conversation["id"], role="user", content="Why that estimate?")
+    issues_db.append_step(
         conversation["id"],
         role="assistant",
         content=None,
         tool_calls=[{"id": "call_1", "type": "function", "function": {"name": "lookup_issue"}}],
     )
-    issues_db.append_turn(
+    issues_db.append_step(
         conversation["id"], role="tool", content="issue details...", tool_call_id="call_1"
     )
 
-    turns = issues_db.get_conversation_turns(conversation["id"])
-    assert [turn["role"] for turn in turns] == ["user", "assistant", "tool"]
-    assert turns[0]["content"] == "Why that estimate?"
-    assert turns[1]["tool_calls"][0]["function"]["name"] == "lookup_issue"
-    assert turns[2]["tool_call_id"] == "call_1"
+    steps = issues_db.get_conversation_steps(conversation["id"])
+    assert [step["role"] for step in steps] == ["user", "assistant", "tool"]
+    assert [step["turn_number"] for step in steps] == [1, 1, 1]
+    assert steps[0]["content"] == "Why that estimate?"
+    assert steps[1]["tool_calls"][0]["function"]["name"] == "lookup_issue"
+    assert steps[2]["tool_call_id"] == "call_1"
+
+
+def test_a_second_user_message_starts_a_new_turn_number(database_url):
+    issue = issues_db.save("The kitchen tap is dripping", AgentOutcome(status="done"))
+    conversation = issues_db.create_conversation(issue["id"])
+
+    issues_db.append_step(conversation["id"], role="user", content="Why that estimate?")
+    issues_db.append_step(conversation["id"], role="assistant", content="Because X.")
+    issues_db.append_step(conversation["id"], role="user", content="Find me more contractors")
+
+    steps = issues_db.get_conversation_steps(conversation["id"])
+    assert [step["turn_number"] for step in steps] == [1, 1, 2]
 
 
 def test_an_eleventh_user_turn_is_rejected_by_the_conversation_cap(database_url):
@@ -165,10 +178,10 @@ def test_an_eleventh_user_turn_is_rejected_by_the_conversation_cap(database_url)
     conversation = issues_db.create_conversation(issue["id"])
 
     for i in range(10):
-        issues_db.append_turn(conversation["id"], role="user", content=f"message {i}")
+        issues_db.append_step(conversation["id"], role="user", content=f"message {i}")
 
     with pytest.raises(issues_db.ConversationCapReached):
-        issues_db.append_turn(conversation["id"], role="user", content="one too many")
+        issues_db.append_step(conversation["id"], role="user", content="one too many")
 
 
 def test_get_issue_returns_the_issue_row(database_url):
@@ -196,18 +209,18 @@ def test_list_contractors_for_issue_returns_its_linked_contractors(database_url)
     assert {c["name"] for c in contractors} == {"Test Plumbing Co", "Sample Heating Ltd"}
 
 
-def test_list_conversations_for_issue_includes_each_conversations_turns(database_url):
+def test_list_conversations_for_issue_includes_each_conversations_steps(database_url):
     issue = issues_db.save("The kitchen tap is dripping", AgentOutcome(status="done"))
     first = issues_db.create_conversation(issue["id"])
     second = issues_db.create_conversation(issue["id"])
-    issues_db.append_turn(first["id"], role="user", content="Why that estimate?")
-    issues_db.append_turn(second["id"], role="user", content="Find me more contractors")
+    issues_db.append_step(first["id"], role="user", content="Why that estimate?")
+    issues_db.append_step(second["id"], role="user", content="Find me more contractors")
 
     conversations = issues_db.list_conversations_for_issue(issue["id"])
 
     assert [c["id"] for c in conversations] == [first["id"], second["id"]]
-    assert [turn["content"] for turn in conversations[0]["turns"]] == ["Why that estimate?"]
-    assert [turn["content"] for turn in conversations[1]["turns"]] == ["Find me more contractors"]
+    assert [step["content"] for step in conversations[0]["steps"]] == ["Why that estimate?"]
+    assert [step["content"] for step in conversations[1]["steps"]] == ["Find me more contractors"]
 
 
 def test_lookup_issue_composes_the_issue_contractors_and_conversations(database_url):
@@ -216,14 +229,14 @@ def test_lookup_issue_composes_the_issue_contractors_and_conversations(database_
         AgentOutcome(status="done", contractors=[ContractorResult(name="Test Plumbing Co")]),
     )
     conversation = issues_db.create_conversation(issue["id"])
-    issues_db.append_turn(conversation["id"], role="user", content="Why that estimate?")
+    issues_db.append_step(conversation["id"], role="user", content="Why that estimate?")
 
     result = issues_db.lookup_issue(issue["id"])
 
     assert result["issue"]["id"] == issue["id"]
     assert [c["name"] for c in result["contractors"]] == ["Test Plumbing Co"]
     assert [c["id"] for c in result["conversations"]] == [conversation["id"]]
-    assert result["conversations"][0]["turns"][0]["content"] == "Why that estimate?"
+    assert result["conversations"][0]["steps"][0]["content"] == "Why that estimate?"
 
 
 def test_issues_are_listed_newest_first(database_url):

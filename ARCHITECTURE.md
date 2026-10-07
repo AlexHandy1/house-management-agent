@@ -54,7 +54,7 @@ Points to ADRs/specs for full reasoning rather than restating it.
   loop's invariant is "every run ends with exactly one `save_*` call," which
   is incompatible with a conversational turn, where ending on plain text
   with no tool call is the normal case, bounded only by the 10-user-turn
-  cap enforced at persistence (`issues_db.append_turn`'s
+  cap enforced at persistence (`issues_db.append_step`'s
   `ConversationCapReached`). The two loops share only what carries no
   task-specific invariant — the model constant and traced client builder
   from `agent.py` — and reuse tool *implementations* (the
@@ -73,12 +73,21 @@ Points to ADRs/specs for full reasoning rather than restating it.
   `contractors` and `issue_contractors` (a many-to-many join table) hold
   the agent's contractor picks — `save()` upserts a contractor by name and
   links it to the issue; `list_issues()` exposes a computed
-  `has_contractor` per issue. `conversations` and `conversation_turns`
-  (`create_conversation()`, `append_turn()`, `get_conversation_turns()`)
+  `has_contractor` per issue. `conversations` and `conversation_steps`
+  (`create_conversation()`, `append_step()`, `get_conversation_steps()`)
   hold the per-issue follow-up conversations introduced in the multi-turn
-  slice — each conversation is FK-bound to one issue, and `append_turn`
-  enforces a 10-user-turn cap (`ConversationCapReached`). These tables live
-  in `issues_db.py` rather than a module of their own, unlike `articles`
+  slice. A *turn* is one user message plus everything the agent does in
+  response to it; a *step* is one row — the user message, an assistant
+  tool-call, a tool result, or the final assistant reply — tagged with the
+  `turn_number` it belongs to (derived in `append_step`, not passed in: a
+  count of user steps so far). This distinction matters beyond naming —
+  the Langfuse trace hierarchy (ADR-007; build step 7) and the frontend
+  thread view (build step 8) both group by `turn_number`, nesting a turn's
+  steps under it, rather than re-inferring turn boundaries from a flat
+  list. Each conversation is FK-bound to one issue, and `append_step`
+  enforces a 10-user-turn cap (`ConversationCapReached`) by counting
+  `role = 'user'` steps. These tables live in `issues_db.py` rather than a
+  module of their own, unlike `articles`
   (below): they have no independent lifecycle or populating process of
   their own — they're part of an issue's own data graph, the same reason
   `contractors`/`issue_contractors` live here instead of a separate

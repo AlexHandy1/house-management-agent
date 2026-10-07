@@ -52,7 +52,7 @@ def database_url(monkeypatch):
     with psycopg.connect(url) as conn:
         conn.execute(
             "TRUNCATE issues, contractors, issue_contractors, conversations, "
-            "conversation_turns RESTART IDENTITY CASCADE"
+            "conversation_steps RESTART IDENTITY CASCADE"
         )
     return url
 

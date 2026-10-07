@@ -52,9 +52,10 @@ CREATE TABLE IF NOT EXISTS conversations (
   issue_id    bigint      NOT NULL REFERENCES issues(id),
   created_at  timestamptz NOT NULL DEFAULT now()
 );
-CREATE TABLE IF NOT EXISTS conversation_turns (
+CREATE TABLE IF NOT EXISTS conversation_steps (
   id               bigserial PRIMARY KEY,
   conversation_id  bigint      NOT NULL REFERENCES conversations(id),
+  turn_number      integer     NOT NULL,
   role             text        NOT NULL CHECK (role IN ('user', 'assistant', 'tool')),
   content          text,
   tool_calls       jsonb,
@@ -155,35 +156,45 @@ def create_conversation(issue_id: int) -> dict[str, Any]:
         return row
 
 
-def append_turn(
+def append_step(
     conversation_id: int,
     role: str,
     content: str | None,
     tool_calls: list[dict[str, Any]] | None = None,
     tool_call_id: str | None = None,
 ) -> dict[str, Any]:
+    """Appends one step (a user message, an assistant message/tool-call, or a tool
+    result) to a conversation. A step is one move within processing a turn; a turn is
+    one user message plus everything the agent does in response to it. turn_number is
+    derived here, not passed in: it's the count of user steps so far, incremented when
+    this step is itself a user step — the single source of truth the cap also reads."""
     with psycopg.connect(get_database_url(), row_factory=dict_row) as conn:
+        count_row = conn.execute(
+            "SELECT COUNT(*) AS count FROM conversation_steps "
+            "WHERE conversation_id = %s AND role = 'user'",
+            (conversation_id,),
+        ).fetchone()
+        assert count_row is not None
+        user_turns_so_far = count_row["count"]
         if role == "user":
-            count_row = conn.execute(
-                "SELECT COUNT(*) AS count FROM conversation_turns "
-                "WHERE conversation_id = %s AND role = 'user'",
-                (conversation_id,),
-            ).fetchone()
-            assert count_row is not None
-            if count_row["count"] >= MAX_USER_TURNS_PER_CONVERSATION:
+            if user_turns_so_far >= MAX_USER_TURNS_PER_CONVERSATION:
                 raise ConversationCapReached(
                     f"Conversation {conversation_id} already has "
                     f"{MAX_USER_TURNS_PER_CONVERSATION} user turns"
                 )
+            turn_number = user_turns_so_far + 1
+        else:
+            turn_number = user_turns_so_far
         row = conn.execute(
             """
-            INSERT INTO conversation_turns
-                (conversation_id, role, content, tool_calls, tool_call_id)
-            VALUES (%s, %s, %s, %s, %s)
+            INSERT INTO conversation_steps
+                (conversation_id, turn_number, role, content, tool_calls, tool_call_id)
+            VALUES (%s, %s, %s, %s, %s, %s)
             RETURNING *
             """,
             (
                 conversation_id,
+                turn_number,
                 role,
                 content,
                 Jsonb(tool_calls) if tool_calls is not None else None,
@@ -194,11 +205,11 @@ def append_turn(
         return row
 
 
-def get_conversation_turns(conversation_id: int) -> list[dict[str, Any]]:
+def get_conversation_steps(conversation_id: int) -> list[dict[str, Any]]:
     with psycopg.connect(get_database_url(), row_factory=dict_row) as conn:
         return conn.execute(
             """
-            SELECT * FROM conversation_turns
+            SELECT * FROM conversation_steps
             WHERE conversation_id = %s
             ORDER BY created_at, id
             """,
@@ -213,7 +224,7 @@ def get_issue(issue_id: int) -> dict[str, Any] | None:
 
 def lookup_issue(issue_id: int) -> dict[str, Any]:
     """Everything a conversation agent needs about an issue: the issue row, its
-    linked contractors, and the full turn history of every prior conversation on it."""
+    linked contractors, and the full step history of every prior conversation on it."""
     return {
         "issue": get_issue(issue_id),
         "contractors": list_contractors_for_issue(issue_id),
@@ -228,7 +239,7 @@ def list_conversations_for_issue(issue_id: int) -> list[dict[str, Any]]:
             (issue_id,),
         ).fetchall()
     for conversation in conversations:
-        conversation["turns"] = get_conversation_turns(conversation["id"])
+        conversation["steps"] = get_conversation_steps(conversation["id"])
     return conversations
 
 
