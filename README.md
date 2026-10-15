@@ -1,32 +1,36 @@
 # House Management Agent
 
-An AI agent for rental-property maintenance, and a landlord's assistant more broadly.
-A closed, deterministic triage step handles the initial report — a cost estimate,
-contractors, or a clarifying question, whichever it actually calls for — but a landlord
-isn't boxed into that fixed set of outcomes: an open-ended conversation layer sits on top
-of it, reasoning freely over the saved context rather than being limited to pre-defined
-actions, alongside a news feed keeping the landlord current on the regulatory/industry
-context around all of this.
+House Management Agent is an AI assistant for landlords, built to take the hassle out of
+running a rental property. Report a maintenance issue and it researches repair costs,
+finds contractors, or asks the right follow-up question — then stays in the conversation
+so you can dig into an estimate, compare a quote, or ask for more options. It also keeps
+you current with a news feed pulled from trusted landlord sources, all sitting behind
+Google-account-only sign-in.
+
+![House Management Agent screenshot](docs/images/house-management-screenshot.png)
 
 ## What it does
 
-- `POST /api/issue` — reports a maintenance issue. The agent researches UK repair costs,
-  finds contractors, both, or asks a clarifying question — whichever the request actually
-  needs — saves the result to Postgres, and opens a conversation for follow-up (returns
-  `conversation_id`).
-- `POST /api/conversations/{id}/messages` — an open-ended, bounded (10 user messages)
-  conversation on that issue: explain the estimate, compare a quote, pull a fresh
-  comparison estimate, find more contractors, or just ask — not limited to the fixed
-  outcomes the triage step itself can produce.
-- `GET /api/news-feed` — a landlord news feed (NRLA, Tenancy Deposit Scheme), pulled
-  automatically every 2 days by a scheduled Cloud Run Job and shown alongside the issue
-  history.
-- Deployed behind Google-account-only auth (Cloud Run IAP), with Langfuse tracing and
-  CI/CD to GCP Cloud Run.
+- **Report and follow up on issues** — describe a maintenance problem and the agent
+  researches repair costs local to your property, finds contractors, or asks a
+  clarifying question, whichever the report actually needs, then keeps a conversation
+  open so you can dig deeper afterwards.
+- **Get cost estimates** — grounded in pricing for your property's location, with the
+  option to pull a fresh comparison estimate during the follow-up conversation.
+- **Find contractors** — surfaced alongside the estimate, or on request in conversation.
+- **Stay current** — a landlord news feed built from trusted sources (NRLA, Tenancy
+  Deposit Scheme), refreshed automatically every 2 days.
+- **Gated access** — everything sits behind Google-account-only authentication, with
+  Langfuse tracing and CI/CD to GCP Cloud Run.
 
-## Setup
+## Running it locally
 
-Requires Python 3.13, Node, and Docker.
+**Prerequisites:**
+- Python 3.13, Node, and Docker
+- An [OpenRouter](https://openrouter.ai/) account and API key (`OPENROUTER_API_KEY`) —
+  required; the agent makes real LLM calls through it
+- A [Langfuse](https://langfuse.com/) account and keys (`LANGFUSE_SECRET_KEY`,
+  `LANGFUSE_PUBLIC_KEY`) — optional locally, used for tracing
 
 ```bash
 docker compose up -d                  # Postgres 15 on localhost:5432 (repo root)
