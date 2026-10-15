@@ -7,7 +7,7 @@ so you can dig into an estimate, compare a quote, or ask for more options. It al
 you current with a news feed pulled from trusted landlord sources, all sitting behind
 Google-account-only sign-in.
 
-![House Management Agent screenshot](docs/images/house-management-screenshot.png)
+![House Management Agent screenshot](docs/images/house-management-screenshot-v151026.png)
 
 ## What it does
 
